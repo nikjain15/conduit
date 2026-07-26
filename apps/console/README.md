@@ -9,22 +9,35 @@ style flexbox columns.
 
 ## Sections
 
-- Overview: spend this month across use cases plus a health summary from the SUQS targets.
-- Models: the core screen. Per use case, a card with a main model, a backup that takes over on a cap hit, a monthly cap in USD, and a cached answer reuse toggle. Caching is locked off for customer facing and financial use cases. Each card has Save and Test actions.
+- Overview: spend this month across use cases plus a health summary, both read live from the gateway usage and suqs endpoints.
+- Models: the core screen. Per use case, a card over the live model catalog with a main model, a backup that takes over on a cap hit, a monthly cap in USD, and a cached answer reuse toggle. Caching is locked off for customer facing and financial use cases. Each card has Save and Test actions.
 - Eval setup: the gates and thresholds each use case must clear, split into inline and batch checks.
-- Cost dashboards: spend per use case over recent months, drawn as scaled bars.
-- SUQS SLOs: p95 latency, cost per answer, and gate block rate against target, flagged when over.
+- Cost dashboards: spend per use case, read live from the gateway usage endpoint, drawn as scaled bars.
+- SUQS SLOs: p95 latency, cost per answer, and gate block rate computed live from real metered decisions, against target, flagged when over.
 
 ## Data layer
 
-All spend and inference reads flow through a single `@conduit/client` running in gateway
-mode. By default the client is wired to a local mock adapter in `src/data/mockGateway.ts`,
-so `npm run build` produces a static site that works with no backend. Every figure the
-console renders is clearly labelled as sample configuration, not a live measurement.
+All telemetry and inference reads flow through a single `@conduit/client` running in
+gateway mode. The client exposes `usage`, `suqs`, and `reportDecision` alongside the
+inference methods.
+
+The distinction the console keeps honest:
+
+- Live telemetry (Overview, Cost dashboards, SUQS SLOs) reads real records through the
+  gateway. There is no sample spend or sample latency anywhere. When the gateway has no
+  records, these views render an explicit "No live data yet" panel rather than any number.
+- Sample configuration (Models routing defaults, Prompts, Guardrails, Agent, Eval setup,
+  Retrieval) is placeholder config, and the pages that show it carry a sample notice.
+
+By default the client is wired to a local mock adapter in `src/data/mockGateway.ts`, so
+`npm run build` produces a static site that works with no backend. The mock backs
+`usage`, `suqs`, and `reportDecision` with an in-memory decision store that starts EMPTY,
+so the offline console demonstrates the honest empty state rather than invented figures.
 
 To point the console at a real deployment, set `VITE_CONDUIT_BASE_URL` and
 `VITE_CONDUIT_API_KEY` at build time. When a base URL is present the client uses the
-global `fetch` transport instead of the mock.
+global `fetch` transport instead of the mock, and the live views fill in as the running
+gateway meters real traffic.
 
 The model catalog follows the inference sampling contract: the newer reasoning models
 reject sampling params, Haiku 4.5 and older accept them, and there is no Haiku 5.

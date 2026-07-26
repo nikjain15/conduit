@@ -54,6 +54,32 @@ export interface ModelsParams {
   useCase?: string;
 }
 
+export interface SuqsParams {
+  window?: string;
+}
+
+/**
+ * One metered decision reported to the gateway (POST /v1/decisions). The gateway
+ * stamps the tenant from the API key, so no tenant field is sent here. `at`
+ * defaults to the gateway clock when omitted.
+ */
+export interface ReportDecisionParams {
+  useCase: string;
+  model: string;
+  provider?: string;
+  costUsd: number;
+  latencyMs: number;
+  tokensIn?: number;
+  tokensOut?: number;
+  gateStatus?: "pass" | "block";
+  at?: number;
+}
+
+export interface ReportDecisionResult {
+  accepted: boolean;
+  tenant: string;
+}
+
 /* ── Method results (identical in both modes) ─────────────────────────────── */
 
 export interface InferResult {
@@ -89,6 +115,31 @@ export interface EvaluateResult {
 export interface UsageResult {
   totalCostUsd: number;
   byUseCase: Record<string, number>;
+}
+
+/** A profile SLO target the SUQS view compares a measured value against. */
+export interface SloTarget {
+  p95LatencyMs?: number;
+  costPerAnswerUsd?: number;
+  gateBlockRate?: number;
+}
+
+/**
+ * One computed SUQS row: real p95 latency, cost per answer, and gate block rate
+ * for a use case, with the profile target when one is configured (else null).
+ */
+export interface SuqsRow {
+  useCase: string;
+  calls: number;
+  p95LatencyMs: number;
+  costPerAnswerUsd: number;
+  gateBlockRate: number;
+  target: SloTarget | null;
+}
+
+/** GET /v1/suqs result. `byUseCase` is empty when the tenant has no records. */
+export interface SuqsResult {
+  byUseCase: SuqsRow[];
 }
 
 /** One routable model in the gateway's normalized catalog shape. Kept local so
@@ -204,6 +255,10 @@ export interface ConduitClient {
   runAgent(params: RunAgentParams): Promise<AgentResult>;
   evaluate(params: EvaluateParams): Promise<EvaluateResult>;
   usage(params?: UsageParams): Promise<UsageResult>;
+  /** Report one metered decision. Optional: only gateway mode serves it. */
+  reportDecision?(params: ReportDecisionParams): Promise<ReportDecisionResult>;
+  /** Read computed SUQS metrics per use case. Optional: only gateway mode serves it. */
+  suqs?(params?: SuqsParams): Promise<SuqsResult>;
   /** List the routable model catalog. Optional: only gateway mode serves it. */
   models?(params?: ModelsParams): Promise<ModelsResult>;
   /** List use case profiles. Optional: only gateway mode serves it. */

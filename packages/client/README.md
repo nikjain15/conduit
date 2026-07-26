@@ -68,6 +68,11 @@ Identical in both modes.
 - `evaluate({ datasetId })` returns `{ summary, metrics }`.
 - `usage({ window? })` returns `{ totalCostUsd, byUseCase }`.
 
+Gateway mode also serves these optional methods (undefined in embedded mode):
+
+- `reportDecision({ useCase, model, costUsd, latencyMs, provider?, tokensIn?, tokensOut?, gateStatus?, at? })` meters one decision and returns `{ accepted, tenant }`. The tenant is stamped by the gateway from the API key.
+- `suqs({ window? })` returns `{ byUseCase: [{ useCase, calls, p95LatencyMs, costPerAnswerUsd, gateBlockRate, target }] }`, computed from real recorded decisions. Empty when there are no records.
+
 ## Gateway HTTP contract
 
 Every call sends `Authorization: Bearer <apiKey>`.
@@ -79,6 +84,8 @@ Every call sends `Authorization: Bearer <apiKey>`.
 | `runAgent` | `POST /v1/agent` |
 | `evaluate` | `POST /v1/evals/run` |
 | `usage` | `GET /v1/usage` |
+| `reportDecision` | `POST /v1/decisions` |
+| `suqs` | `GET /v1/suqs` |
 
 A non-2xx response is thrown as a `ConduitError` carrying `status` and the parsed `body`.
 

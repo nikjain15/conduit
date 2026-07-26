@@ -3,10 +3,13 @@ import { describe, it, expect, afterEach } from "vitest";
 import { render, screen, cleanup, fireEvent, waitFor, within } from "@testing-library/react";
 import { builtInMethodNames } from "@conduit/evals";
 import { App } from "../src/App.tsx";
-import { mockGatewayFetch } from "../src/data/mockGateway.ts";
+import { mockGatewayFetch, resetMockDecisions } from "../src/data/mockGateway.ts";
 import { MODEL_CONFIG, USE_CASES } from "../src/data/sample.ts";
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  resetMockDecisions();
+});
 
 describe("console shell", () => {
   it("renders the masthead and every section tab", () => {
@@ -235,6 +238,56 @@ describe("mock gateway profile round-trip", () => {
   });
 });
 
+describe("honest empty states", () => {
+  it("Overview renders the no live data panel when the store is empty", async () => {
+    render(<App />);
+    // Overview is the default tab.
+    await waitFor(() => expect(screen.getByText("No live data yet")).toBeTruthy());
+    // No fabricated dollar figure is shown.
+    expect(screen.queryByText(/\$/)).toBeNull();
+  });
+
+  it("SUQS renders the no live data panel when the store is empty", async () => {
+    render(<App />);
+    fireEvent.click(screen.getByRole("tab", { name: "SUQS SLOs" }));
+    await waitFor(() => expect(screen.getByText("No live data yet")).toBeTruthy());
+  });
+
+  it("Cost dashboards renders the no live data panel when the store is empty", async () => {
+    render(<App />);
+    fireEvent.click(screen.getByRole("tab", { name: "Cost dashboards" }));
+    await waitFor(() => expect(screen.getByText("No live data yet")).toBeTruthy());
+  });
+});
+
+describe("Models live catalog", () => {
+  it("lists a live-shaped catalog with recommendations for every use case", async () => {
+    for (const u of USE_CASES) {
+      const res = await mockGatewayFetch(`https://gateway.local/v1/models?useCase=${u.id}`, { method: "GET" });
+      const body = (await res.json()) as {
+        models: Array<{ ref: string; provider: string; promptPerMTok: number; contextLength: number }>;
+        recommended: string[];
+      };
+      // Catalog is live-shaped: normalized model records across all providers.
+      expect(body.models.length).toBeGreaterThan(0);
+      const providers = new Set(body.models.map((m) => m.provider));
+      expect(providers.has("openrouter")).toBe(true);
+      expect(providers.has("anthropic")).toBe(true);
+      expect(providers.has("workers-ai")).toBe(true);
+      for (const m of body.models) {
+        expect(typeof m.ref).toBe("string");
+        expect(typeof m.promptPerMTok).toBe("number");
+        expect(typeof m.contextLength).toBe("number");
+      }
+      // Each use case gets recommendations drawn from the catalog.
+      expect(Array.isArray(body.recommended)).toBe(true);
+      expect(body.recommended.length).toBeGreaterThan(0);
+      const refs = new Set(body.models.map((m) => m.ref));
+      for (const ref of body.recommended) expect(refs.has(ref)).toBe(true);
+    }
+  });
+});
+
 describe("caching policy", () => {
   it("locks caching off for customer facing and financial use cases", () => {
     const billing = MODEL_CONFIG.find((c) => c.useCaseId === "billing-summary");
@@ -245,12 +298,44 @@ describe("caching policy", () => {
 });
 
 describe("mock gateway", () => {
-  it("returns sample usage totalling the per use case spend", async () => {
-    const res = await mockGatewayFetch("https://gateway.local/v1/usage", { method: "GET" });
-    expect(res.ok).toBe(true);
-    const body = (await res.json()) as { totalCostUsd: number; byUseCase: Record<string, number> };
-    const sum = Object.values(body.byUseCase).reduce((a, b) => a + b, 0);
-    expect(body.totalCostUsd).toBe(sum);
+  it("starts with an empty usage and suqs state, never invented numbers", async () => {
+    const usageRes = await mockGatewayFetch("https://gateway.local/v1/usage", { method: "GET" });
+    const usage = (await usageRes.json()) as { totalCostUsd: number; byUseCase: Record<string, number> };
+    expect(usage).toEqual({ totalCostUsd: 0, byUseCase: {} });
+
+    const suqsRes = await mockGatewayFetch("https://gateway.local/v1/suqs", { method: "GET" });
+    const suqs = (await suqsRes.json()) as { byUseCase: unknown[] };
+    expect(suqs.byUseCase).toEqual([]);
+  });
+
+  it("reflects a reported decision in usage and suqs", async () => {
+    await mockGatewayFetch("https://gateway.local/v1/decisions", {
+      method: "POST",
+      body: JSON.stringify({
+        useCase: "kb-search",
+        model: "claude-sonnet-5",
+        provider: "anthropic",
+        costUsd: 0.02,
+        latencyMs: 1800,
+        gateStatus: "pass",
+        at: 1_000_000,
+      }),
+    });
+
+    const usage = (await (await mockGatewayFetch("https://gateway.local/v1/usage", { method: "GET" })).json()) as {
+      totalCostUsd: number;
+      byUseCase: Record<string, number>;
+    };
+    expect(usage).toEqual({ totalCostUsd: 0.02, byUseCase: { "kb-search": 0.02 } });
+
+    const suqs = (await (await mockGatewayFetch("https://gateway.local/v1/suqs", { method: "GET" })).json()) as {
+      byUseCase: Array<{ useCase: string; calls: number; p95LatencyMs: number; costPerAnswerUsd: number }>;
+    };
+    expect(suqs.byUseCase).toHaveLength(1);
+    expect(suqs.byUseCase[0].useCase).toBe("kb-search");
+    expect(suqs.byUseCase[0].calls).toBe(1);
+    expect(suqs.byUseCase[0].p95LatencyMs).toBe(1800);
+    expect(suqs.byUseCase[0].costPerAnswerUsd).toBe(0.02);
   });
 
   it("serves the merged catalog and recommends per use case", async () => {

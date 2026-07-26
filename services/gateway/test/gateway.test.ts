@@ -6,7 +6,7 @@
 import { describe, it, expect } from "vitest";
 import { route } from "../src/router";
 import { buildGatewayTools } from "../src/mcp";
-import { MemoryMeterSink } from "../src/metering";
+import { InMemoryDecisionStore } from "../src/metering";
 import type { CatalogModel } from "@conduit/catalog";
 import type {
   CatalogSource,
@@ -16,7 +16,9 @@ import type {
   InferTask,
   ModelsResult,
   ParsedRequest,
+  SuqsResult,
   Tenant,
+  UsageResult,
 } from "../src/types";
 
 const TENANT_A: Tenant = { id: "tenant-a", name: "Acme" };
@@ -29,17 +31,17 @@ const KEYS: Record<string, Tenant> = {
 
 interface Fakes {
   deps: GatewayDeps;
-  meter: MemoryMeterSink;
+  store: InMemoryDecisionStore;
   inferCalls: Array<{ task: InferTask; tenant: Tenant }>;
 }
 
 function makeDeps(overrides: Partial<GatewayDeps> = {}): Fakes {
-  const meter = new MemoryMeterSink();
+  const store = new InMemoryDecisionStore();
   const inferCalls: Array<{ task: InferTask; tenant: Tenant }> = [];
 
   const deps: GatewayDeps = {
     lookupTenant: (apiKey) => KEYS[apiKey] ?? null,
-    meter,
+    store,
     now: () => 1_000_000,
     async infer(task, tenant): Promise<InferResult> {
       inferCalls.push({ task, tenant });
@@ -63,7 +65,7 @@ function makeDeps(overrides: Partial<GatewayDeps> = {}): Fakes {
     },
     ...overrides,
   };
-  return { deps, meter, inferCalls };
+  return { deps, store, inferCalls };
 }
 
 function req(partial: Partial<ParsedRequest> & Pick<ParsedRequest, "method" | "path">): ParsedRequest {
@@ -160,7 +162,7 @@ describe("gateway router", () => {
   });
 
   it("records a decision on infer and aggregates it per useCase in /v1/usage", async () => {
-    const { deps, meter } = makeDeps();
+    const { deps, store } = makeDeps();
     const infer = (useCase: string) =>
       route(
         req({
@@ -175,7 +177,7 @@ describe("gateway router", () => {
     await infer("summarize");
     await infer("classify");
 
-    const recorded = meter.list("tenant-a");
+    const recorded = store.query("tenant-a");
     expect(recorded).toHaveLength(3);
     expect(recorded.every((d: Decision) => d.tenant === "tenant-a" && d.at === 1_000_000)).toBe(true);
 
@@ -186,10 +188,7 @@ describe("gateway router", () => {
     expect(usage.status).toBe(200);
     expect(usage.json).toEqual({
       totalCostUsd: 0.006,
-      byUseCase: [
-        { useCase: "classify", calls: 1, costUsd: 0.002 },
-        { useCase: "summarize", calls: 2, costUsd: 0.004 },
-      ],
+      byUseCase: { classify: 0.002, summarize: 0.004 },
     });
   });
 
@@ -208,7 +207,7 @@ describe("gateway router", () => {
       req({ method: "GET", path: "/v1/usage", headers: bearer("key-b") }),
       deps,
     );
-    expect(usageB.json).toEqual({ totalCostUsd: 0, byUseCase: [] });
+    expect(usageB.json).toEqual({ totalCostUsd: 0, byUseCase: {} });
   });
 
   it("routes retrieve, agent, and evals to their injected cores", async () => {
@@ -259,6 +258,127 @@ describe("gateway router", () => {
     const { deps } = makeDeps();
     const res = await route(
       req({ method: "POST", path: "/v1/infer", headers: bearer("key-a"), body: { messages: [] } }),
+      deps,
+    );
+    expect(res.status).toBe(400);
+  });
+});
+
+describe("POST /v1/decisions and GET /v1/suqs", () => {
+  const reportedDecision = {
+    useCase: "kb-search",
+    model: "claude-sonnet-5",
+    provider: "anthropic",
+    costUsd: 0.02,
+    latencyMs: 1800,
+    tokensIn: 1200,
+    tokensOut: 300,
+    gateStatus: "pass" as const,
+    at: 1_000_000,
+  };
+
+  it("rejects an unauthenticated report as 401 and stores nothing", async () => {
+    const { deps, store } = makeDeps();
+    const res = await route(
+      req({ method: "POST", path: "/v1/decisions", body: reportedDecision }),
+      deps,
+    );
+    expect(res.status).toBe(401);
+    expect(store.query("tenant-a")).toHaveLength(0);
+  });
+
+  it("stamps the tenant from the key, ignoring a body-supplied tenant", async () => {
+    const { deps, store } = makeDeps();
+    const res = await route(
+      req({
+        method: "POST",
+        path: "/v1/decisions",
+        headers: bearer("key-a"),
+        body: { ...reportedDecision, tenant: "tenant-b", tenantId: "tenant-b" },
+      }),
+      deps,
+    );
+    expect(res.status).toBe(202);
+    const rows = store.query("tenant-a");
+    expect(rows).toHaveLength(1);
+    expect(rows[0].tenant).toBe("tenant-a");
+    expect(rows[0].useCase).toBe("kb-search");
+    // Nothing landed under the attacker-supplied tenant.
+    expect(store.query("tenant-b")).toHaveLength(0);
+  });
+
+  it("surfaces a reported decision in both usage and suqs", async () => {
+    const sloTargets = () => ({ p95LatencyMs: 2500, costPerAnswerUsd: 0.03, gateBlockRate: 0.05 });
+    const { deps } = makeDeps({ sloTargets });
+    await route(
+      req({ method: "POST", path: "/v1/decisions", headers: bearer("key-a"), body: reportedDecision }),
+      deps,
+    );
+
+    const usage = await route(req({ method: "GET", path: "/v1/usage", headers: bearer("key-a") }), deps);
+    expect(usage.json).toEqual({ totalCostUsd: 0.02, byUseCase: { "kb-search": 0.02 } });
+
+    const suqs = await route(req({ method: "GET", path: "/v1/suqs", headers: bearer("key-a") }), deps);
+    const body = suqs.json as SuqsResult;
+    expect(body.byUseCase).toHaveLength(1);
+    expect(body.byUseCase[0]).toEqual({
+      useCase: "kb-search",
+      calls: 1,
+      p95LatencyMs: 1800,
+      costPerAnswerUsd: 0.02,
+      gateBlockRate: 0,
+      target: { p95LatencyMs: 2500, costPerAnswerUsd: 0.03, gateBlockRate: 0.05 },
+    });
+  });
+
+  it("computes p95, cost per answer, and gate block rate from real records", async () => {
+    const { deps } = makeDeps();
+    const report = (over: Record<string, unknown>) =>
+      route(
+        req({
+          method: "POST",
+          path: "/v1/decisions",
+          headers: bearer("key-a"),
+          body: { useCase: "support-triage", model: "m", costUsd: 0.001, latencyMs: 100, ...over },
+        }),
+        deps,
+      );
+    // Ten calls, latencies 100..1000, one blocked, total cost 0.01.
+    for (let i = 1; i <= 10; i++) {
+      await report({ latencyMs: i * 100, gateStatus: i === 1 ? "block" : "pass" });
+    }
+    const suqs = await route(req({ method: "GET", path: "/v1/suqs", headers: bearer("key-a") }), deps);
+    const row = (suqs.json as SuqsResult).byUseCase[0];
+    expect(row.calls).toBe(10);
+    expect(row.p95LatencyMs).toBe(1000); // nearest-rank p95 of 100..1000
+    expect(row.costPerAnswerUsd).toBe(0.001);
+    expect(row.gateBlockRate).toBe(0.1);
+    expect(row.target).toBeNull(); // no sloTargets injected
+  });
+
+  it("returns empty usage and suqs when there are no records, never invented numbers", async () => {
+    const { deps } = makeDeps();
+    const usage = await route(req({ method: "GET", path: "/v1/usage", headers: bearer("key-a") }), deps);
+    expect(usage.json as UsageResult).toEqual({ totalCostUsd: 0, byUseCase: {} });
+
+    const suqs = await route(req({ method: "GET", path: "/v1/suqs", headers: bearer("key-a") }), deps);
+    expect(suqs.json as SuqsResult).toEqual({ byUseCase: [] });
+  });
+
+  it("isolates reported decisions per tenant in suqs", async () => {
+    const { deps } = makeDeps();
+    await route(
+      req({ method: "POST", path: "/v1/decisions", headers: bearer("key-a"), body: reportedDecision }),
+      deps,
+    );
+    const suqsB = await route(req({ method: "GET", path: "/v1/suqs", headers: bearer("key-b") }), deps);
+    expect((suqsB.json as SuqsResult).byUseCase).toEqual([]);
+  });
+
+  it("rejects a report missing required fields as 400", async () => {
+    const { deps } = makeDeps();
+    const res = await route(
+      req({ method: "POST", path: "/v1/decisions", headers: bearer("key-a"), body: { useCase: "x" } }),
       deps,
     );
     expect(res.status).toBe(400);

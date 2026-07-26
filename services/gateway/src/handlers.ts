@@ -1,7 +1,7 @@
 /**
  * Endpoint handlers: pure async functions over a ParsedRequest and the injected
  * deps, each returning `{ status, json }`. They do no IO of their own beyond the
- * injected cores and the meter, so every one is unit testable directly.
+ * injected cores and the decision store, so every one is unit testable directly.
  *
  * By the time a /v1/* handler runs, the router has already authenticated the
  * request and stamped `req.tenant`. Handlers therefore treat `req.tenant` as the
@@ -11,7 +11,7 @@ import type { ChatMessage } from "@conduit/inference";
 import type { CatalogModel } from "@conduit/catalog";
 import type { CatalogSource } from "./types";
 import { mergeCatalog, recommendForUseCase, USE_CASE_PROFILES } from "@conduit/catalog";
-import { aggregateUsage, parseWindow, withinWindow } from "./metering";
+import { aggregateUsage, computeSuqs, parseWindow } from "./metering";
 import type {
   AgentTask,
   Decision,
@@ -22,6 +22,7 @@ import type {
   ParsedRequest,
   RetrieveTask,
   RouteResponse,
+  SloTarget,
   Tenant,
 } from "./types";
 
@@ -78,13 +79,62 @@ export async function handleInfer(
     tenant: tenant.id,
     useCase: task.useCase,
     model: result.model,
+    provider: result.provider,
     costUsd: result.costUsd,
     latencyMs: result.latencyMs,
     at: (deps.now ?? Date.now)(),
   };
-  await deps.meter.record(decision);
+  await deps.store.append(decision);
 
   return { status: 200, json: result };
+}
+
+/**
+ * POST /v1/decisions. Accepts one externally metered decision and appends it to
+ * the store under the resolved tenant. The tenant is always taken from the
+ * bearer key; any `tenant`/`tenantId` in the body is ignored. This is the path a
+ * running gateway (or an app that meters its own calls) uses to feed real
+ * numbers into /v1/usage and /v1/suqs.
+ */
+export async function handleDecisions(
+  req: ParsedRequest,
+  deps: GatewayDeps,
+  tenant: Tenant,
+): Promise<RouteResponse> {
+  const body = req.body;
+  if (!isObject(body)) return badRequest("body must be a JSON object");
+  if (typeof body.useCase !== "string" || body.useCase.length === 0) {
+    return badRequest("useCase is required");
+  }
+  if (typeof body.model !== "string" || body.model.length === 0) {
+    return badRequest("model is required");
+  }
+  if (typeof body.costUsd !== "number" || !Number.isFinite(body.costUsd)) {
+    return badRequest("costUsd must be a number");
+  }
+  if (typeof body.latencyMs !== "number" || !Number.isFinite(body.latencyMs)) {
+    return badRequest("latencyMs must be a number");
+  }
+
+  const gateStatus =
+    body.gateStatus === "pass" || body.gateStatus === "block" ? body.gateStatus : undefined;
+
+  // Tenant is stamped from the key, never from the body.
+  const decision: Decision = {
+    tenant: tenant.id,
+    useCase: body.useCase,
+    model: body.model,
+    costUsd: body.costUsd,
+    latencyMs: body.latencyMs,
+    ...(typeof body.provider === "string" ? { provider: body.provider } : {}),
+    ...(typeof body.tokensIn === "number" ? { tokensIn: body.tokensIn } : {}),
+    ...(typeof body.tokensOut === "number" ? { tokensOut: body.tokensOut } : {}),
+    ...(gateStatus ? { gateStatus } : {}),
+    at: typeof body.at === "number" ? body.at : (deps.now ?? Date.now)(),
+  };
+  await deps.store.append(decision);
+
+  return { status: 202, json: { accepted: true, tenant: tenant.id } };
 }
 
 /** POST /v1/retrieve. */
@@ -141,7 +191,11 @@ export async function handleEvalsRun(
   return { status: 200, json: result };
 }
 
-/** GET /v1/usage?window=. Aggregates the tenant's own decisions only. */
+/**
+ * GET /v1/usage?window=. Aggregates the tenant's own real decisions (per use
+ * case and total). Returns an empty result when the tenant has no records; it
+ * never fabricates a figure.
+ */
 export async function handleUsage(
   req: ParsedRequest,
   deps: GatewayDeps,
@@ -149,9 +203,36 @@ export async function handleUsage(
 ): Promise<RouteResponse> {
   const now = (deps.now ?? Date.now)();
   const since = parseWindow(req.query.get("window"), now);
-  const decisions = await deps.meter.list(tenant.id);
-  const scoped = withinWindow(decisions, since);
-  return { status: 200, json: aggregateUsage(scoped) };
+  const decisions = await deps.store.query(tenant.id, since > 0 ? { since } : {});
+  return { status: 200, json: aggregateUsage(decisions) };
+}
+
+/**
+ * GET /v1/suqs?window=. Computes p95 latency, cost per answer, and gate block
+ * rate per use case from the tenant's real decisions, and attaches the profile
+ * SLO target for each use case when one is configured. Returns an empty result
+ * (`{ byUseCase: [] }`) when the tenant has no records.
+ */
+export async function handleSuqs(
+  req: ParsedRequest,
+  deps: GatewayDeps,
+  tenant: Tenant,
+): Promise<RouteResponse> {
+  const now = (deps.now ?? Date.now)();
+  const since = parseWindow(req.query.get("window"), now);
+  const decisions = await deps.store.query(tenant.id, since > 0 ? { since } : {});
+
+  const targets = new Map<string, SloTarget>();
+  if (deps.sloTargets) {
+    const useCases = [...new Set(decisions.map((d) => d.useCase))];
+    for (const useCase of useCases) {
+      const target = await deps.sloTargets(tenant, useCase);
+      if (target) targets.set(useCase, target);
+    }
+  }
+
+  const result = computeSuqs(decisions, (useCase) => targets.get(useCase));
+  return { status: 200, json: result };
 }
 
 /** In-process cache of the OpenRouter fetch, keyed by the catalog source so

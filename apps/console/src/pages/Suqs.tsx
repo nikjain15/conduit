@@ -1,9 +1,21 @@
-import { SAMPLE_NOTICE, SLO_ROWS, useCaseName, type SloRow } from "../data/sample.ts";
+import { useEffect, useState } from "react";
+import { client } from "../data/client.ts";
+import type { SuqsResult, SuqsRow } from "@conduit/client";
+import { useCaseName } from "../data/sample.ts";
+import { NoLiveData } from "./NoLiveData.tsx";
 
-function Meter({ value, target, invert }: { value: number; target: number; invert?: boolean }) {
-  // invert false: lower is better, over target is bad.
+function Meter({ value, target }: { value: number; target?: number }) {
+  // Lower is better: a bar over its target is bad. With no target, show a
+  // neutral bar with no over/under judgement.
+  if (target === undefined || target <= 0) {
+    return (
+      <div className="meter" aria-hidden="true">
+        <span style={{ width: "50%" }} />
+      </div>
+    );
+  }
   const ratio = Math.min(value / target, 1.4);
-  const over = invert ? value < target : value > target;
+  const over = value > target;
   return (
     <div className="meter" aria-hidden="true">
       <span className={over ? "over" : ""} style={{ width: `${Math.min(ratio * 71, 100)}%` }} />
@@ -11,64 +23,95 @@ function Meter({ value, target, invert }: { value: number; target: number; inver
   );
 }
 
-function flagged(r: SloRow): boolean {
+function flagged(r: SuqsRow): boolean {
+  const t = r.target;
+  if (!t) return false;
   return (
-    r.p95LatencyMs > r.p95TargetMs ||
-    r.costPerAnswerUsd > r.costTargetUsd ||
-    r.gateBlockRate > r.gateBlockTarget
+    (t.p95LatencyMs !== undefined && r.p95LatencyMs > t.p95LatencyMs) ||
+    (t.costPerAnswerUsd !== undefined && r.costPerAnswerUsd > t.costPerAnswerUsd) ||
+    (t.gateBlockRate !== undefined && r.gateBlockRate > t.gateBlockRate)
   );
 }
 
 export function Suqs() {
+  const [suqs, setSuqs] = useState<SuqsResult | null>(null);
+
+  useEffect(() => {
+    let live = true;
+    const load = client.suqs
+      ? client.suqs({ window: "month" })
+      : Promise.resolve<SuqsResult>({ byUseCase: [] });
+    void load.then((s) => {
+      if (live) setSuqs(s);
+    });
+    return () => {
+      live = false;
+    };
+  }, []);
+
   return (
     <section className="page">
       <h2>SUQS SLOs</h2>
       <p className="lead">
         Service level objectives for each use case: p95 latency, cost per answer, and gate block rate,
-        each shown against its target. A row is flagged when any measure runs over target.
+        each shown against its target. Every measure is computed live from real metered decisions. A row
+        is flagged when any measure runs over target.
       </p>
-      <span className="notice">{SAMPLE_NOTICE}</span>
 
-      <div className="card" style={{ overflowX: "auto" }}>
-        <table className="data">
-          <thead>
-            <tr>
-              <th>Use case</th>
-              <th>p95 latency</th>
-              <th>Cost per answer</th>
-              <th>Gate block rate</th>
-              <th>Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            {SLO_ROWS.map((r) => (
-              <tr key={r.useCaseId}>
-                <td>{useCaseName(r.useCaseId)}</td>
-                <td>
-                  <span className="mono">{r.p95LatencyMs} ms</span>
-                  <div className="muted" style={{ fontSize: 12 }}>target {r.p95TargetMs} ms</div>
-                  <Meter value={r.p95LatencyMs} target={r.p95TargetMs} />
-                </td>
-                <td>
-                  <span className="mono">${r.costPerAnswerUsd.toFixed(3)}</span>
-                  <div className="muted" style={{ fontSize: 12 }}>target ${r.costTargetUsd.toFixed(3)}</div>
-                  <Meter value={r.costPerAnswerUsd} target={r.costTargetUsd} />
-                </td>
-                <td>
-                  <span className="mono">{(r.gateBlockRate * 100).toFixed(1)}%</span>
-                  <div className="muted" style={{ fontSize: 12 }}>target {(r.gateBlockTarget * 100).toFixed(1)}%</div>
-                  <Meter value={r.gateBlockRate} target={r.gateBlockTarget} />
-                </td>
-                <td>
-                  <span className={flagged(r) ? "pill bad" : "pill good"}>
-                    {flagged(r) ? "over target" : "within target"}
-                  </span>
-                </td>
+      {suqs === null ? (
+        <p className="sub">Loading SUQS metrics from the gateway.</p>
+      ) : suqs.byUseCase.length === 0 ? (
+        <NoLiveData what="SUQS metrics" />
+      ) : (
+        <div className="card" style={{ overflowX: "auto" }}>
+          <table className="data">
+            <thead>
+              <tr>
+                <th>Use case</th>
+                <th>Calls</th>
+                <th>p95 latency</th>
+                <th>Cost per answer</th>
+                <th>Gate block rate</th>
+                <th>Status</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+            </thead>
+            <tbody>
+              {suqs.byUseCase.map((r) => (
+                <tr key={r.useCase}>
+                  <td>{useCaseName(r.useCase)}</td>
+                  <td className="mono">{r.calls}</td>
+                  <td>
+                    <span className="mono">{r.p95LatencyMs} ms</span>
+                    {r.target?.p95LatencyMs !== undefined && (
+                      <div className="muted" style={{ fontSize: 12 }}>target {r.target.p95LatencyMs} ms</div>
+                    )}
+                    <Meter value={r.p95LatencyMs} target={r.target?.p95LatencyMs} />
+                  </td>
+                  <td>
+                    <span className="mono">${r.costPerAnswerUsd.toFixed(3)}</span>
+                    {r.target?.costPerAnswerUsd !== undefined && (
+                      <div className="muted" style={{ fontSize: 12 }}>target ${r.target.costPerAnswerUsd.toFixed(3)}</div>
+                    )}
+                    <Meter value={r.costPerAnswerUsd} target={r.target?.costPerAnswerUsd} />
+                  </td>
+                  <td>
+                    <span className="mono">{(r.gateBlockRate * 100).toFixed(1)}%</span>
+                    {r.target?.gateBlockRate !== undefined && (
+                      <div className="muted" style={{ fontSize: 12 }}>target {(r.target.gateBlockRate * 100).toFixed(1)}%</div>
+                    )}
+                    <Meter value={r.gateBlockRate} target={r.target?.gateBlockRate} />
+                  </td>
+                  <td>
+                    <span className={flagged(r) ? "pill bad" : "pill good"}>
+                      {flagged(r) ? "over target" : "within target"}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </section>
   );
 }

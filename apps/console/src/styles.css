@@ -267,6 +267,13 @@ table.data tr:last-child td { border-bottom: none; }
 .meter > span.over { background: var(--bad); }
 
 .muted { color: var(--text-muted); }
+
+.empty-state {
+  border-style: dashed;
+  text-align: center;
+}
+.empty-state h3 { margin-top: 0; }
+.empty-state .sub { max-width: 60ch; margin: 0 auto; }
 .mono { font-variant-numeric: tabular-nums; }
 
 .field textarea {

@@ -190,36 +190,25 @@ export const EVAL_SETUP: EvalSetup[] = [
   },
 ];
 
-/** Ordered month labels for the cost trend, oldest to newest. */
-export const COST_MONTHS = ["Feb", "Mar", "Apr", "May", "Jun", "Jul"];
-
-/** Sample monthly spend in USD per use case, aligned to COST_MONTHS. */
-export const COST_TREND: Record<string, number[]> = {
-  "support-triage": [640, 705, 690, 810, 870, 940],
-  "kb-search": [1180, 1320, 1500, 1610, 1740, 1880],
-  "sales-draft": [420, 460, 510, 540, 600, 660],
-  "billing-summary": [880, 910, 1010, 1120, 1180, 1260],
-  "code-review": [1300, 1410, 1520, 1600, 1710, 1820],
-};
-
-export interface SloRow {
-  useCaseId: string;
+/**
+ * SUQS service level objective TARGETS per use case. These are configured
+ * objectives (part of the use case profile), not measurements. Measured p95
+ * latency, cost per answer, and gate block rate come only from real decisions
+ * reported to the gateway, so there are no sample "current" values here.
+ */
+export interface SloTargets {
   p95LatencyMs: number;
-  p95TargetMs: number;
   costPerAnswerUsd: number;
-  costTargetUsd: number;
   gateBlockRate: number;
-  gateBlockTarget: number;
 }
 
-/** SUQS: service, usage, quality, spend service level objectives. */
-export const SLO_ROWS: SloRow[] = [
-  { useCaseId: "support-triage", p95LatencyMs: 1400, p95TargetMs: 2000, costPerAnswerUsd: 0.004, costTargetUsd: 0.006, gateBlockRate: 0.01, gateBlockTarget: 0.03 },
-  { useCaseId: "kb-search", p95LatencyMs: 2600, p95TargetMs: 2500, costPerAnswerUsd: 0.019, costTargetUsd: 0.02, gateBlockRate: 0.02, gateBlockTarget: 0.05 },
-  { useCaseId: "sales-draft", p95LatencyMs: 1900, p95TargetMs: 3000, costPerAnswerUsd: 0.012, costTargetUsd: 0.015, gateBlockRate: 0.04, gateBlockTarget: 0.03 },
-  { useCaseId: "billing-summary", p95LatencyMs: 2200, p95TargetMs: 2500, costPerAnswerUsd: 0.031, costTargetUsd: 0.03, gateBlockRate: 0.01, gateBlockTarget: 0.02 },
-  { useCaseId: "code-review", p95LatencyMs: 3400, p95TargetMs: 4000, costPerAnswerUsd: 0.058, costTargetUsd: 0.06, gateBlockRate: 0.06, gateBlockTarget: 0.05 },
-];
+export const SLO_TARGETS: Record<string, SloTargets> = {
+  "support-triage": { p95LatencyMs: 2000, costPerAnswerUsd: 0.006, gateBlockRate: 0.03 },
+  "kb-search": { p95LatencyMs: 2500, costPerAnswerUsd: 0.02, gateBlockRate: 0.05 },
+  "sales-draft": { p95LatencyMs: 3000, costPerAnswerUsd: 0.015, gateBlockRate: 0.03 },
+  "billing-summary": { p95LatencyMs: 2500, costPerAnswerUsd: 0.03, gateBlockRate: 0.02 },
+  "code-review": { p95LatencyMs: 4000, costPerAnswerUsd: 0.06, gateBlockRate: 0.05 },
+};
 
 export function useCaseName(id: string): string {
   return USE_CASES.find((u) => u.id === id)?.name ?? id;
@@ -267,6 +256,23 @@ const SAMPLE_AGENT: Record<string, UseCaseProfile["agent"]> = {
     mode: "single",
     tools: ["classify-intent"],
     skills: [],
+  },
+  "kb-search": {
+    mode: "loop",
+    tools: ["search-kb", "fetch-doc"],
+    skills: ["cite-sources"],
+    maxSteps: 4,
+  },
+  "sales-draft": {
+    mode: "single",
+    tools: ["lookup-account"],
+    skills: ["brand-voice"],
+  },
+  "billing-summary": {
+    mode: "loop",
+    tools: ["fetch-invoice", "lookup-account"],
+    skills: ["plain-language"],
+    maxSteps: 3,
   },
 };
 
@@ -316,13 +322,7 @@ function evalsForUseCase(useCaseId: string): UseCaseProfile["evals"] {
 }
 
 function sloForUseCase(useCaseId: string): UseCaseProfile["slo"] {
-  const row = SLO_ROWS.find((s) => s.useCaseId === useCaseId);
-  if (!row) return {};
-  return {
-    p95LatencyMs: row.p95TargetMs,
-    costPerAnswerUsd: row.costTargetUsd,
-    gateBlockRate: row.gateBlockTarget,
-  };
+  return SLO_TARGETS[useCaseId] ?? {};
 }
 
 export const SAMPLE_PROFILES: UseCaseProfile[] = USE_CASES.map((u) => {

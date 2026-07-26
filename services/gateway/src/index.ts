@@ -12,18 +12,28 @@ export {
   handleRetrieve,
   handleAgent,
   handleEvalsRun,
+  handleDecisions,
   handleUsage,
+  handleSuqs,
   handleModels,
   handleHealthz,
 } from "./handlers";
-export { aggregateUsage, withinWindow, parseWindow, MemoryMeterSink } from "./metering";
+export {
+  aggregateUsage,
+  computeSuqs,
+  percentile,
+  withinWindow,
+  parseWindow,
+  InMemoryDecisionStore,
+} from "./metering";
 export { buildGatewayTools, createGatewaySse } from "./mcp";
 export { createGatewayServer } from "./server";
 
 export type {
   Tenant,
   LookupTenant,
-  MeterSink,
+  DecisionStore,
+  DecisionQuery,
   Decision,
   GatewayDeps,
   GatewayCores,
@@ -38,7 +48,10 @@ export type {
   EvalTask,
   EvalResult,
   UsageResult,
-  UsageByUseCase,
+  SuqsResult,
+  SuqsRow,
+  SloTarget,
+  SloTargetLookup,
   CatalogSource,
   ModelsResult,
 } from "./types";

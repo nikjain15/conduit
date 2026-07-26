@@ -16,9 +16,13 @@ import type {
   ModelsResult,
   ProfilesParams,
   ProfilesResult,
+  ReportDecisionParams,
+  ReportDecisionResult,
   RetrieveParams,
   RetrieveResult,
   RunAgentParams,
+  SuqsParams,
+  SuqsResult,
   UsageParams,
   UsageResult,
   UseCaseProfile,
@@ -93,6 +97,16 @@ export function createGatewayClient(config: GatewayConfig): ConduitClient {
       const window = params?.window;
       const query = window ? `?window=${encodeURIComponent(window)}` : "";
       return request<UsageResult>("GET", `/v1/usage${query}`);
+    },
+
+    reportDecision(params: ReportDecisionParams): Promise<ReportDecisionResult> {
+      return request<ReportDecisionResult>("POST", "/v1/decisions", params);
+    },
+
+    suqs(params?: SuqsParams): Promise<SuqsResult> {
+      const window = params?.window;
+      const query = window ? `?window=${encodeURIComponent(window)}` : "";
+      return request<SuqsResult>("GET", `/v1/suqs${query}`);
     },
 
     models(params?: ModelsParams): Promise<ModelsResult> {

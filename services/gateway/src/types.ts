@@ -3,7 +3,7 @@
  *
  * The gateway is deliberately thin: it owns auth, tenant isolation, and
  * metering, and delegates all real work to injected cores (`infer`, `retrieve`,
- * `runAgent`, `evaluate`) plus a metering sink. Everything the gateway touches
+ * `runAgent`, `evaluate`) plus a decision store. Everything the gateway touches
  * is an interface here, so the router can be unit tested with fakes and no
  * network, no clock, and no open port.
  */
@@ -93,39 +93,98 @@ export interface EvalResult {
   metrics: Record<string, number>;
 }
 
-/** One metered decision, recorded per /v1/infer call. */
+/**
+ * One metered decision. The gateway records one per inference (via /v1/infer)
+ * and accepts externally reported ones (via /v1/decisions). Only `tenant`,
+ * `useCase`, `model`, `costUsd`, `latencyMs`, and `at` are guaranteed; the token
+ * counts, provider, and gate status are optional because not every producer has
+ * them. The tenant is always stamped by the gateway from the resolved API key,
+ * never trusted from a client body.
+ */
 export interface Decision {
   tenant: string;
   useCase: string;
   model: string;
+  provider?: string;
   costUsd: number;
   latencyMs: number;
+  tokensIn?: number;
+  tokensOut?: number;
+  /** Outcome of any inline gate: "pass" or "block" drive the SUQS block rate. */
+  gateStatus?: "pass" | "block";
   /** Epoch ms; defaults to Date.now() when the gateway records it. */
   at: number;
 }
 
+/** Optional filter for a decision query. All bounds are inclusive of `since`
+ *  and exclusive of `until` (epoch ms); `useCase` narrows to one use case. */
+export interface DecisionQuery {
+  since?: number;
+  until?: number;
+  useCase?: string;
+}
+
 /**
- * The metering sink. The gateway writes one decision per inference and reads
- * them back, scoped to a tenant, to build /v1/usage. Injected so tests can
- * assert exactly what was recorded and so production can back it with a durable
- * store. `list` receives the tenant so a real store never scans across tenants.
+ * The persistent-capable decision store: the metering seam.
+ *
+ * The gateway appends one decision per metered event and queries them back,
+ * always scoped to a single tenant, to build /v1/usage and /v1/suqs. It is an
+ * interface so the default `InMemoryDecisionStore` can be swapped for a durable
+ * backend (Postgres, SQLite, D1) without touching a handler: implement `append`
+ * as an INSERT and `query` as a tenant-scoped SELECT with a WHERE over `at` and
+ * `useCase`. `query` receives the tenant so a real store never scans across
+ * tenants, which is what keeps tenant isolation a storage-layer invariant rather
+ * than an application-layer filter.
  */
-export interface MeterSink {
-  record(decision: Decision): void | Promise<void>;
-  list(tenant: string): Decision[] | Promise<Decision[]>;
+export interface DecisionStore {
+  append(record: Decision): void | Promise<void>;
+  query(tenant: string, filter?: DecisionQuery): Decision[] | Promise<Decision[]>;
 }
 
-/** Per-use-case usage rollup returned by GET /v1/usage. */
-export interface UsageByUseCase {
-  useCase: string;
-  calls: number;
-  costUsd: number;
-}
-
+/**
+ * Per-use-case usage rollup returned by GET /v1/usage. `byUseCase` maps a use
+ * case id to its summed cost in USD. Empty when the tenant has no records: an
+ * honest empty state, never a fabricated figure.
+ */
 export interface UsageResult {
   totalCostUsd: number;
-  byUseCase: UsageByUseCase[];
+  byUseCase: Record<string, number>;
 }
+
+/** A profile SLO target the SUQS endpoint compares measured values against. */
+export interface SloTarget {
+  p95LatencyMs?: number;
+  costPerAnswerUsd?: number;
+  gateBlockRate?: number;
+}
+
+/**
+ * One computed SUQS row: real p95 latency, cost per answer, and gate block rate
+ * for a use case, plus the profile target when one is known. Every number here
+ * is derived from real recorded decisions; `target` is null when no SLO is
+ * configured for the use case.
+ */
+export interface SuqsRow {
+  useCase: string;
+  calls: number;
+  p95LatencyMs: number;
+  costPerAnswerUsd: number;
+  gateBlockRate: number;
+  target: SloTarget | null;
+}
+
+/** GET /v1/suqs result. `byUseCase` is empty when the tenant has no records. */
+export interface SuqsResult {
+  byUseCase: SuqsRow[];
+}
+
+/** Resolve the SLO target for a tenant's use case, or undefined when none is
+ *  configured. Injected so targets come from the profile store in production
+ *  and from a fake in tests. */
+export type SloTargetLookup = (
+  tenant: Tenant,
+  useCase: string,
+) => SloTarget | undefined | Promise<SloTarget | undefined>;
 
 /** The injected cores the gateway orchestrates. Each is tenant-scoped by the
  *  gateway passing the resolved tenant, never the request body. */
@@ -139,7 +198,10 @@ export interface GatewayCores {
 /** Everything the router needs, all injectable. */
 export interface GatewayDeps extends GatewayCores {
   lookupTenant: LookupTenant;
-  meter: MeterSink;
+  store: DecisionStore;
+  /** SLO targets for /v1/suqs. Optional: when absent, SUQS rows carry a null
+   *  target rather than an invented one. */
+  sloTargets?: SloTargetLookup;
   /** Clock seam, defaults to Date.now. */
   now?: () => number;
   /** Model catalog source for GET /v1/models. Optional so cores that do not

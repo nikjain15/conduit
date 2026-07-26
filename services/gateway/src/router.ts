@@ -14,11 +14,13 @@
  */
 import {
   handleAgent,
+  handleDecisions,
   handleEvalsRun,
   handleHealthz,
   handleInfer,
   handleModels,
   handleRetrieve,
+  handleSuqs,
   handleUsage,
 } from "./handlers";
 import type { GatewayDeps, ParsedRequest, RouteResponse, Tenant } from "./types";
@@ -51,7 +53,9 @@ const V1_ROUTES: Record<string, Partial<Record<string, AuthedHandler>>> = {
   "/v1/retrieve": { POST: handleRetrieve },
   "/v1/agent": { POST: handleAgent },
   "/v1/evals/run": { POST: handleEvalsRun },
+  "/v1/decisions": { POST: handleDecisions },
   "/v1/usage": { GET: handleUsage },
+  "/v1/suqs": { GET: handleSuqs },
   "/v1/models": { GET: handleModels },
 };
 
