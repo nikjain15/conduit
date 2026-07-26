@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "description": "Conduit guardrails engine: a fail-closed decision function that runs a use case's PII policy, a deterministic prompt-injection detector, structured-output validation, a human-in-the-loop confidence threshold, and mandatory eval floors, then combines the signals into one allow, redact, block, or escalate decision.",
   "type": "module",
+  "license": "MIT",
   "main": "./src/index.ts",
   "types": "./src/index.ts",
   "exports": {
@@ -15,5 +16,25 @@
     "@conduit/evals": "0.1.0",
     "@conduit/profile": "0.1.0"
   },
-  "license": "MIT"
+  "keywords": [
+    "ai",
+    "guardrails",
+    "safety",
+    "pii",
+    "prompt-injection"
+  ],
+  "author": "Nik Jain",
+  "homepage": "https://github.com/nikjain15/conduit#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nikjain15/conduit.git",
+    "directory": "packages/guardrails"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "src",
+    "README.md"
+  ]
 }

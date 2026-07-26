@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "description": "Conduit use case profile: one config object per use case for routing, retrieval, agent, prompt, guardrails, evals, and SLOs, plus pluggable registries and a store backed resolver the follow-up workstreams fill in.",
   "type": "module",
+  "license": "MIT",
   "main": "./src/index.ts",
   "types": "./src/index.ts",
   "exports": {
@@ -16,5 +17,24 @@
     "@conduit/inference": "0.1.0",
     "@conduit/rag": "0.1.0"
   },
-  "license": "MIT"
+  "keywords": [
+    "ai",
+    "config",
+    "use-case",
+    "profile"
+  ],
+  "author": "Nik Jain",
+  "homepage": "https://github.com/nikjain15/conduit#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nikjain15/conduit.git",
+    "directory": "packages/profile"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "src",
+    "README.md"
+  ]
 }

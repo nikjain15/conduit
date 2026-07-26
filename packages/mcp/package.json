@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "description": "Conduit MCP: turn a set of Conduit tools into a Model Context Protocol server. A transport-agnostic tool registry with JSON Schema argument validation and structured errors, plus thin stdio and HTTP/SSE transports for local and hosted distribution.",
   "type": "module",
+  "license": "MIT",
   "main": "./src/index.ts",
   "types": "./src/index.ts",
   "exports": {
@@ -16,5 +17,24 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0"
   },
-  "license": "MIT"
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "ai",
+    "tools"
+  ],
+  "author": "Nik Jain",
+  "homepage": "https://github.com/nikjain15/conduit#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nikjain15/conduit.git",
+    "directory": "packages/mcp"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "src",
+    "README.md"
+  ]
 }

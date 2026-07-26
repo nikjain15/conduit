@@ -1,6 +1,7 @@
 {
   "name": "@conduit/console",
   "version": "0.1.0",
+  "private": true,
   "description": "Conduit console: the platform front end for routing, spend caps, evals, cost dashboards, and SUQS SLOs.",
   "type": "module",
   "license": "MIT",

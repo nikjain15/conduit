@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "description": "Conduit client: one thin SDK an app imports. The same method surface runs the core in-process (embedded) or calls the conduit-gateway over HTTP (gateway). No external dependencies; fetch and the embedded core are injected by the caller.",
   "type": "module",
+  "license": "MIT",
   "main": "./src/index.ts",
   "types": "./src/index.ts",
   "exports": {
@@ -11,5 +12,24 @@
   "scripts": {
     "typecheck": "tsc --noEmit"
   },
-  "license": "MIT"
+  "keywords": [
+    "ai",
+    "sdk",
+    "client",
+    "gateway"
+  ],
+  "author": "Nik Jain",
+  "homepage": "https://github.com/nikjain15/conduit#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nikjain15/conduit.git",
+    "directory": "packages/client"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "src",
+    "README.md"
+  ]
 }

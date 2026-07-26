@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "description": "Conduit prompt registry: a versioned prompt store and a deterministic resolver that composes named templates and interpolates variables, so the system prompt for a use case is config driven and never hard coded.",
   "type": "module",
+  "license": "MIT",
   "main": "./src/index.ts",
   "types": "./src/index.ts",
   "exports": {
@@ -14,5 +15,24 @@
   "dependencies": {
     "@conduit/profile": "0.1.0"
   },
-  "license": "MIT"
+  "keywords": [
+    "ai",
+    "prompts",
+    "templates",
+    "prompt-registry"
+  ],
+  "author": "Nik Jain",
+  "homepage": "https://github.com/nikjain15/conduit#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nikjain15/conduit.git",
+    "directory": "packages/prompts"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "src",
+    "README.md"
+  ]
 }

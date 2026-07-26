@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "description": "Conduit agent loop: a pure, testable bounded reason-act loop. Tools, runtime-loaded skills, and a no-authority invariant (side-effecting tools deny by default). callModel is injected, compatible with @conduit/inference.",
   "type": "module",
+  "license": "MIT",
   "main": "./src/index.ts",
   "types": "./src/index.ts",
   "exports": {
@@ -11,5 +12,25 @@
   "scripts": {
     "typecheck": "tsc --noEmit"
   },
-  "license": "MIT"
+  "keywords": [
+    "ai",
+    "agent",
+    "tools",
+    "llm",
+    "agent-loop"
+  ],
+  "author": "Nik Jain",
+  "homepage": "https://github.com/nikjain15/conduit#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nikjain15/conduit.git",
+    "directory": "packages/agent"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "src",
+    "README.md"
+  ]
 }
