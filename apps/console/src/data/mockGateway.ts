@@ -16,7 +16,7 @@ import {
   recommendForUseCase,
   USE_CASE_PROFILES,
 } from "@conduit/catalog";
-import { COST_TREND, MODEL_CONFIG, modelLabel } from "./sample.ts";
+import { COST_TREND, MODEL_CONFIG, modelLabel, SAMPLE_PROFILES } from "./sample.ts";
 import { OPENROUTER_SNAPSHOT } from "./openrouterSnapshot.ts";
 
 /** The merged catalog the mock serves: the sample OpenRouter snapshot plus the
@@ -66,6 +66,15 @@ export const mockGatewayFetch: FetchLike = async (url, init) => {
     const profile = USE_CASE_PROFILES[useCase];
     const recommended = profile ? recommendForUseCase(MOCK_CATALOG, profile) : [];
     return jsonResponse({ models: MOCK_CATALOG, recommended });
+  }
+
+  if (method === "GET" && path === "/v1/profiles") {
+    const query = url.split("?")[1] ?? "";
+    const useCase = new URLSearchParams(query).get("useCase");
+    const profiles = useCase
+      ? SAMPLE_PROFILES.filter((p) => p.id === useCase)
+      : SAMPLE_PROFILES;
+    return jsonResponse({ profiles });
   }
 
   if (method === "POST" && path === "/v1/infer") {

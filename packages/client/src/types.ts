@@ -113,6 +113,86 @@ export interface ModelsResult {
   recommended?: string[];
 }
 
+/**
+ * One use case profile in the gateway's config shape. Kept local so the SDK
+ * stays dependency free; structurally matches `@conduit/profile` UseCaseProfile.
+ * The profile is the single config object that makes routing, retrieval, agent,
+ * prompt, guardrails, evals, and SLOs config driven per use case.
+ */
+export interface ProfileRouting {
+  main: string;
+  backup?: string;
+  capUsd?: number;
+  cache?: boolean;
+}
+
+export interface ProfileRetrieval {
+  source: string;
+  chunking?: { size: number; overlap: number };
+  embedModel?: string;
+  topK?: number;
+  groundingThreshold?: number;
+}
+
+export interface ProfileAgent {
+  mode: "single" | "loop";
+  tools: string[];
+  skills: string[];
+  maxSteps?: number;
+}
+
+export interface ProfilePrompt {
+  systemRef: string;
+  templates?: Record<string, string>;
+  variables?: Record<string, string>;
+}
+
+export interface ProfileGuardrails {
+  pii?: boolean;
+  injectionGuard?: boolean;
+  outputSchema?: unknown;
+  hitlThreshold?: number;
+  floors?: string[];
+}
+
+export interface ProfileEval {
+  key: string;
+  method: string;
+  params?: Record<string, unknown>;
+  threshold?: number | string;
+  floor?: boolean;
+  mandatory?: boolean;
+  when: "inline" | "batch";
+}
+
+export interface ProfileSlo {
+  p95LatencyMs?: number;
+  costPerAnswerUsd?: number;
+  gateBlockRate?: number;
+}
+
+export interface UseCaseProfile {
+  id: string;
+  name: string;
+  tenant: string;
+  routing: ProfileRouting;
+  retrieval?: ProfileRetrieval | null;
+  agent?: ProfileAgent;
+  prompt?: ProfilePrompt;
+  guardrails?: ProfileGuardrails;
+  evals?: ProfileEval[];
+  slo?: ProfileSlo;
+}
+
+export interface ProfilesParams {
+  /** When set, return only the profile for this use case. */
+  useCase?: string;
+}
+
+export interface ProfilesResult {
+  profiles: UseCaseProfile[];
+}
+
 /* ── The unified client surface both modes implement ──────────────────────── */
 
 export interface ConduitClient {
@@ -124,6 +204,8 @@ export interface ConduitClient {
   usage(params?: UsageParams): Promise<UsageResult>;
   /** List the routable model catalog. Optional: only gateway mode serves it. */
   models?(params?: ModelsParams): Promise<ModelsResult>;
+  /** List use case profiles. Optional: only gateway mode serves it. */
+  profiles?(params?: ProfilesParams): Promise<ProfilesResult>;
 }
 
 /* ── Injected HTTP transport (gateway mode) ───────────────────────────────── */

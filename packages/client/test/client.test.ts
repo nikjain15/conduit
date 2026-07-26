@@ -217,6 +217,16 @@ describe("gateway mode", () => {
     expect(calls[0].init?.body).toBeUndefined();
   });
 
+  it("profiles is a GET with the useCase query param and no body", async () => {
+    const { fetch, calls } = mockFetch(jsonResponse({ profiles: [] }));
+    const client = createClient(gatewayCfg(fetch));
+    await client.profiles?.({ useCase: "kb-search" });
+
+    expect(calls[0].url).toBe("https://gw.conduit.dev/v1/profiles?useCase=kb-search");
+    expect(calls[0].init?.method).toBe("GET");
+    expect(calls[0].init?.body).toBeUndefined();
+  });
+
   it("a non-ok HTTP response surfaces as a structured ConduitError", async () => {
     const { fetch } = mockFetch(
       jsonResponse({ error: "unauthorized" }, 401),

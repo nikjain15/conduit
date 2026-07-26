@@ -6,6 +6,8 @@
  * sample so a reader never mistakes them for live production metrics.
  */
 
+import type { UseCaseProfile } from "@conduit/client";
+
 export const SAMPLE_NOTICE =
   "Sample configuration. Values are placeholders for demonstration, not live production metrics.";
 
@@ -221,4 +223,115 @@ export const SLO_ROWS: SloRow[] = [
 
 export function useCaseName(id: string): string {
   return USE_CASES.find((u) => u.id === id)?.name ?? id;
+}
+
+/**
+ * Sample use case profiles.
+ *
+ * Each profile is the single config object per use case: routing, retrieval,
+ * agent, prompt, guardrails, evals, and SLOs. These are assembled from the same
+ * sample configuration above so the console's Prompts, Guardrails, and Agent
+ * tabs can read a coherent object per use case. Every value is placeholder
+ * configuration for demonstration, not a live measurement. The follow up
+ * workstreams replace the read only views with real editors.
+ */
+const SAMPLE_TENANT = "org:example";
+
+/** Retrieval config for the use cases that ground answers over a corpus. */
+const SAMPLE_RETRIEVAL: Record<string, UseCaseProfile["retrieval"]> = {
+  "kb-search": {
+    source: "internal-kb",
+    chunking: { size: 800, overlap: 100 },
+    embedModel: "workers-ai/@cf/baai/bge-large-en-v1.5",
+    topK: 6,
+    groundingThreshold: 0.95,
+  },
+  "billing-summary": {
+    source: "invoices",
+    chunking: { size: 600, overlap: 80 },
+    embedModel: "workers-ai/@cf/baai/bge-large-en-v1.5",
+    topK: 4,
+    groundingThreshold: 0.9,
+  },
+};
+
+/** Agent config for the use cases that run a tool loop. */
+const SAMPLE_AGENT: Record<string, UseCaseProfile["agent"]> = {
+  "code-review": {
+    mode: "loop",
+    tools: ["read-diff", "run-linter", "search-repo"],
+    skills: ["review-checklist"],
+    maxSteps: 6,
+  },
+  "support-triage": {
+    mode: "single",
+    tools: ["classify-intent"],
+    skills: [],
+  },
+};
+
+/** Guardrails config per use case. */
+const SAMPLE_GUARDRAILS: Record<string, UseCaseProfile["guardrails"]> = {
+  "support-triage": { pii: true, injectionGuard: true, floors: ["no-pii-leak"] },
+  "kb-search": { pii: true, injectionGuard: true, floors: ["cite-or-refuse"] },
+  "sales-draft": { pii: false, injectionGuard: true, floors: ["no-unverified-claims"] },
+  "billing-summary": { pii: true, injectionGuard: true, hitlThreshold: 0.7, floors: ["numeric-fidelity", "no-financial-advice"] },
+  "code-review": { pii: false, injectionGuard: true, floors: ["no-secret-leak"] },
+};
+
+/** System prompt reference per use case, resolved against the prompt registry. */
+const SAMPLE_SYSTEM_REF: Record<string, string> = {
+  "support-triage": "support-triage.system",
+  "kb-search": "kb-search.system",
+  "sales-draft": "sales-draft.system",
+  "billing-summary": "billing-summary.system",
+  "code-review": "code-review.system",
+};
+
+function evalsForUseCase(useCaseId: string): UseCaseProfile["evals"] {
+  const setup = EVAL_SETUP.find((s) => s.useCaseId === useCaseId);
+  if (!setup) return [];
+  return setup.gates.map((g) => ({
+    key: g.id,
+    method: g.metric,
+    threshold: g.threshold,
+    floor: g.kind === "inline",
+    mandatory: true,
+    when: g.kind,
+  }));
+}
+
+function sloForUseCase(useCaseId: string): UseCaseProfile["slo"] {
+  const row = SLO_ROWS.find((s) => s.useCaseId === useCaseId);
+  if (!row) return {};
+  return {
+    p95LatencyMs: row.p95TargetMs,
+    costPerAnswerUsd: row.costTargetUsd,
+    gateBlockRate: row.gateBlockTarget,
+  };
+}
+
+export const SAMPLE_PROFILES: UseCaseProfile[] = USE_CASES.map((u) => {
+  const cfg = MODEL_CONFIG.find((c) => c.useCaseId === u.id);
+  return {
+    id: u.id,
+    name: u.name,
+    tenant: SAMPLE_TENANT,
+    routing: {
+      main: cfg?.mainModel ?? "anthropic/claude-haiku-4-5",
+      backup: cfg?.backupModel,
+      capUsd: cfg?.monthlyCapUsd,
+      cache: cfg?.reuseCachedAnswers ?? false,
+    },
+    retrieval: SAMPLE_RETRIEVAL[u.id] ?? null,
+    agent: SAMPLE_AGENT[u.id],
+    prompt: { systemRef: SAMPLE_SYSTEM_REF[u.id] ?? `${u.id}.system` },
+    guardrails: SAMPLE_GUARDRAILS[u.id] ?? {},
+    evals: evalsForUseCase(u.id),
+    slo: sloForUseCase(u.id),
+  };
+});
+
+export function sampleProfile(useCaseId: string): UseCaseProfile | undefined {
+  return SAMPLE_PROFILES.find((p) => p.id === useCaseId);
 }

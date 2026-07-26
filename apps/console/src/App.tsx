@@ -4,11 +4,17 @@ import { Models } from "./pages/Models.tsx";
 import { EvalSetup } from "./pages/EvalSetup.tsx";
 import { CostDashboards } from "./pages/CostDashboards.tsx";
 import { Suqs } from "./pages/Suqs.tsx";
+import { Prompts } from "./pages/Prompts.tsx";
+import { Guardrails } from "./pages/Guardrails.tsx";
+import { Agent } from "./pages/Agent.tsx";
 import { usingMockGateway } from "./data/client.ts";
 
 const TABS = [
   { id: "overview", label: "Overview" },
   { id: "models", label: "Models" },
+  { id: "prompts", label: "Prompts" },
+  { id: "guardrails", label: "Guardrails" },
+  { id: "agent", label: "Agent" },
   { id: "evals", label: "Eval setup" },
   { id: "cost", label: "Cost dashboards" },
   { id: "suqs", label: "SUQS SLOs" },
@@ -47,6 +53,9 @@ export function App() {
       <main>
         {tab === "overview" && <Overview />}
         {tab === "models" && <Models />}
+        {tab === "prompts" && <Prompts />}
+        {tab === "guardrails" && <Guardrails />}
+        {tab === "agent" && <Agent />}
         {tab === "evals" && <EvalSetup />}
         {tab === "cost" && <CostDashboards />}
         {tab === "suqs" && <Suqs />}

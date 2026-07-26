@@ -11,9 +11,15 @@ describe("console shell", () => {
   it("renders the masthead and every section tab", () => {
     render(<App />);
     expect(screen.getByText("Conduit console")).toBeTruthy();
-    for (const label of ["Overview", "Models", "Eval setup", "Cost dashboards", "SUQS SLOs"]) {
+    for (const label of ["Overview", "Models", "Prompts", "Guardrails", "Agent", "Eval setup", "Cost dashboards", "SUQS SLOs"]) {
       expect(screen.getByRole("tab", { name: label })).toBeTruthy();
     }
+  });
+
+  it("switches to the Guardrails tab and shows the editor coming note", () => {
+    render(<App />);
+    fireEvent.click(screen.getByRole("tab", { name: "Guardrails" }));
+    expect(screen.getByText("Editor coming in this section.")).toBeTruthy();
   });
 
   it("switches to the Models tab and shows a per use case card", () => {
@@ -58,6 +64,21 @@ describe("mock gateway", () => {
     // Every recommended ref must exist in the returned catalog.
     const refs = new Set((scopedBody.models as Array<{ ref: string }>).map((m) => m.ref));
     for (const ref of scopedBody.recommended) expect(refs.has(ref)).toBe(true);
+  });
+
+  it("serves sample profiles for every use case", async () => {
+    const res = await mockGatewayFetch("https://gateway.local/v1/profiles", { method: "GET" });
+    expect(res.ok).toBe(true);
+    const body = (await res.json()) as { profiles: Array<{ id: string; routing: { main: string } }> };
+    expect(body.profiles.length).toBe(USE_CASES.length);
+    for (const p of body.profiles) expect(p.routing.main).toBeTruthy();
+  });
+
+  it("filters profiles by useCase", async () => {
+    const res = await mockGatewayFetch("https://gateway.local/v1/profiles?useCase=kb-search", { method: "GET" });
+    const body = (await res.json()) as { profiles: Array<{ id: string }> };
+    expect(body.profiles.length).toBe(1);
+    expect(body.profiles[0].id).toBe("kb-search");
   });
 
   it("routes infer to the pinned model", async () => {

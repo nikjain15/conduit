@@ -14,6 +14,8 @@ import type {
   InferResult,
   ModelsParams,
   ModelsResult,
+  ProfilesParams,
+  ProfilesResult,
   RetrieveParams,
   RetrieveResult,
   RunAgentParams,
@@ -96,6 +98,12 @@ export function createGatewayClient(config: GatewayConfig): ConduitClient {
       const useCase = params?.useCase;
       const query = useCase ? `?useCase=${encodeURIComponent(useCase)}` : "";
       return request<ModelsResult>("GET", `/v1/models${query}`);
+    },
+
+    profiles(params?: ProfilesParams): Promise<ProfilesResult> {
+      const useCase = params?.useCase;
+      const query = useCase ? `?useCase=${encodeURIComponent(useCase)}` : "";
+      return request<ProfilesResult>("GET", `/v1/profiles${query}`);
     },
   };
 }

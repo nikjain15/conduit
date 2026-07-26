@@ -1,0 +1,15 @@
+{
+  "name": "@conduit/profile",
+  "version": "0.1.0",
+  "description": "Conduit use case profile: one config object per use case for routing, retrieval, agent, prompt, guardrails, evals, and SLOs, plus pluggable registries and a store backed resolver the follow-up workstreams fill in.",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "license": "MIT"
+}
