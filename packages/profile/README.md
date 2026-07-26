@@ -55,6 +55,30 @@ if (out && out.notFound) {
 }
 ```
 
+## Agent
+
+Importing the package registers sample read only tools into `toolRegistry` and
+intent selected skills into `skillRegistry`, so a profile can name its agent
+capabilities by string. The tools are `read-diff`, `run-linter`, `search-repo`,
+`classify-intent`, and `fetch-doc` (all read only), plus `post-review-comment`
+(side effecting, for the no authority path). The skills are `review-checklist`,
+`cite-sources`, and `triage-priority`, each with a `whenIntent` predicate and the
+instructions injected when it matches.
+
+- `resolveAgent(agent, deps?)` maps each tool and skill name to its registered item and returns `{ mode, tools, skills, maxSteps, warnings }`. An unknown name is dropped and recorded in `warnings`, never thrown. A missing agent config resolves to an empty single shot agent.
+- `runConfiguredAgent(profile, input, deps)` resolves the config and runs it. In `loop` mode it delegates to `@conduit/agent`'s `runAgent` with the resolved tools, skills, and step budget and the injected `callModel`. In `single` mode it selects the matching skills, injects their instructions into the system prompt, and makes exactly one tool free model call.
+
+The no authority invariant holds end to end: a side effecting tool is refused in
+loop mode unless the run passes `allowSideEffects: true`, and single mode runs no
+tools at all.
+
+```ts
+import { runConfiguredAgent } from "@conduit/profile";
+
+const result = await runConfiguredAgent(profile, "review this diff", { callModel });
+// result.answer, result.steps, result.loadedSkills, result.warnings
+```
+
 ## Store, resolver, validator
 
 - `ProfileStore` is the persistence boundary: `get`, `list`, `put`. `InMemoryProfileStore` is included for tests, local development, and the console mock.

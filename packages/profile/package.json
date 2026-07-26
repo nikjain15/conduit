@@ -12,6 +12,8 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@conduit/agent": "0.1.0",
+    "@conduit/inference": "0.1.0",
     "@conduit/rag": "0.1.0"
   },
   "license": "MIT"

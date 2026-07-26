@@ -36,6 +36,24 @@ export type {
   RetrieverName,
 } from "./retrieval.ts";
 
+export {
+  resolveAgent,
+  runConfiguredAgent,
+  getTool,
+  getSkill,
+  TOOL_NAMES,
+  SKILL_NAMES,
+  DEFAULT_MAX_STEPS,
+} from "./agent.ts";
+export type {
+  ResolveAgentDeps,
+  ResolvedAgent,
+  RunAgentDeps,
+  RunConfiguredResult,
+  ToolName,
+  SkillName,
+} from "./agent.ts";
+
 export type {
   AgentConfig,
   ChunkingConfig,

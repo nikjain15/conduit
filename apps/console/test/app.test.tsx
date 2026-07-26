@@ -169,6 +169,52 @@ describe("Retrieval editor", () => {
   });
 });
 
+describe("Agent editor", () => {
+  it("renders the active use case agent config", async () => {
+    render(<App />);
+    fireEvent.click(screen.getByRole("tab", { name: "Agent" }));
+    await waitFor(() => expect(screen.getByLabelText("Enable agent")).toBeTruthy());
+
+    // The first use case is support-triage: agent on, single mode.
+    expect((screen.getByLabelText("Enable agent") as HTMLInputElement).checked).toBe(true);
+    expect((screen.getByLabelText("Mode") as HTMLSelectElement).value).toBe("single");
+    // Its one tool is checked; a tool it does not name is not.
+    expect((screen.getByLabelText("Tool classify-intent") as HTMLInputElement).checked).toBe(true);
+    expect((screen.getByLabelText("Tool read-diff") as HTMLInputElement).checked).toBe(false);
+  });
+
+  it("shows max steps only in loop mode", async () => {
+    render(<App />);
+    fireEvent.click(screen.getByRole("tab", { name: "Agent" }));
+    await waitFor(() => expect(screen.getByLabelText("Mode")).toBeTruthy());
+
+    // support-triage starts in single mode: no max steps field.
+    expect(screen.queryByLabelText("Max steps")).toBeNull();
+    // Switching to loop reveals it.
+    fireEvent.change(screen.getByLabelText("Mode"), { target: { value: "loop" } });
+    expect(screen.getByLabelText("Max steps")).toBeTruthy();
+    // Back to single hides it again.
+    fireEvent.change(screen.getByLabelText("Mode"), { target: { value: "single" } });
+    expect(screen.queryByLabelText("Max steps")).toBeNull();
+  });
+
+  it("round-trips a toggled tool through updateProfile", async () => {
+    render(<App />);
+    fireEvent.click(screen.getByRole("tab", { name: "Agent" }));
+    await waitFor(() => expect(screen.getByLabelText("Enable agent")).toBeTruthy());
+
+    // Add read-diff to support-triage and save.
+    fireEvent.click(screen.getByLabelText("Tool read-diff"));
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    await waitFor(() => expect(screen.getByText(/round-trip through the gateway/)).toBeTruthy());
+
+    const res = await mockGatewayFetch("https://gateway.local/v1/profiles?useCase=support-triage", { method: "GET" });
+    const body = (await res.json()) as { profiles: Array<{ agent: { tools: string[] } }> };
+    expect(body.profiles[0].agent.tools).toContain("read-diff");
+    expect(body.profiles[0].agent.tools).toContain("classify-intent");
+  });
+});
+
 describe("mock gateway profile round-trip", () => {
   it("persists an edited profile through PUT and serves it back", async () => {
     const getRes = await mockGatewayFetch("https://gateway.local/v1/profiles?useCase=kb-search", { method: "GET" });
