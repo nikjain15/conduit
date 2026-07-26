@@ -268,3 +268,45 @@ table.data tr:last-child td { border-bottom: none; }
 
 .muted { color: var(--text-muted); }
 .mono { font-variant-numeric: tabular-nums; }
+
+.field textarea {
+  width: 100%;
+  font: inherit;
+  font-size: 13px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  padding: 8px 10px;
+  resize: vertical;
+}
+
+.kv-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin: 0 0 8px;
+}
+.kv-row input { flex: 1; }
+
+.version-row {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  margin: 0 0 6px;
+  font-size: 13.5px;
+}
+.version-row .version-active { color: var(--accent); font-size: 11.5px; }
+
+.code-preview {
+  white-space: pre-wrap;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12.5px;
+  background: var(--accent-soft);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px 12px;
+  color: var(--text);
+}
+.warn-note { color: var(--bad); font-size: 12px; }

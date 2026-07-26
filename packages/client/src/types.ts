@@ -149,6 +149,8 @@ export interface ProfilePrompt {
 
 export interface ProfileGuardrails {
   pii?: boolean;
+  /** On a PII hit: mask the matches ("redact") or refuse ("block"). */
+  piiAction?: "redact" | "block";
   injectionGuard?: boolean;
   outputSchema?: unknown;
   hitlThreshold?: number;

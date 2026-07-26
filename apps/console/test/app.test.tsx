@@ -17,12 +17,6 @@ describe("console shell", () => {
     }
   });
 
-  it("switches to the Guardrails tab and shows the editor coming note", () => {
-    render(<App />);
-    fireEvent.click(screen.getByRole("tab", { name: "Guardrails" }));
-    expect(screen.getByText("Editor coming in this section.")).toBeTruthy();
-  });
-
   it("switches to the Models tab and shows a per use case card", () => {
     render(<App />);
     fireEvent.click(screen.getByRole("tab", { name: "Models" }));
@@ -59,6 +53,64 @@ describe("Eval setup editor", () => {
     fireEvent.click(screen.getByRole("button", { name: "Add inline gate" }));
     const after = screen.getAllByLabelText("Gate key").length;
     expect(after).toBe(before + 1);
+  });
+});
+
+describe("Prompts editor", () => {
+  it("renders the active use case prompt values and a resolved preview", async () => {
+    render(<App />);
+    fireEvent.click(screen.getByRole("tab", { name: "Prompts" }));
+    await waitFor(() => expect(screen.getByLabelText("System prompt reference")).toBeTruthy());
+
+    // The first use case is support-triage; its systemRef is registered.
+    const ref = screen.getByLabelText("System prompt reference") as HTMLInputElement;
+    expect(ref.value).toBe("support-triage.system");
+    // The resolver preview renders the composed system text.
+    expect(screen.getByText("Resolved system prompt")).toBeTruthy();
+  });
+
+  it("round-trips an edited systemRef through updateProfile", async () => {
+    render(<App />);
+    fireEvent.click(screen.getByRole("tab", { name: "Prompts" }));
+    await waitFor(() => expect(screen.getByLabelText("System prompt reference")).toBeTruthy());
+
+    fireEvent.change(screen.getByLabelText("System prompt reference"), {
+      target: { value: "kb-search.system" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    await waitFor(() => expect(screen.getByText(/round-trip through the gateway/)).toBeTruthy());
+
+    const res = await mockGatewayFetch("https://gateway.local/v1/profiles?useCase=support-triage", { method: "GET" });
+    const body = (await res.json()) as { profiles: Array<{ prompt: { systemRef: string } }> };
+    expect(body.profiles[0].prompt.systemRef).toBe("kb-search.system");
+  });
+});
+
+describe("Guardrails editor", () => {
+  it("renders the active use case guardrails values and its eval keys as floors", async () => {
+    render(<App />);
+    fireEvent.click(screen.getByRole("tab", { name: "Guardrails" }));
+    await waitFor(() => expect(screen.getByLabelText("Injection guard")).toBeTruthy());
+
+    // support-triage has pii and injectionGuard on in the sample data.
+    expect((screen.getByLabelText("PII protection") as HTMLInputElement).checked).toBe(true);
+    expect((screen.getByLabelText("Injection guard") as HTMLInputElement).checked).toBe(true);
+    // Its eval keys are offered as floor checkboxes.
+    expect(screen.getByLabelText("Floor pii-block")).toBeTruthy();
+  });
+
+  it("round-trips a toggled injection guard through updateProfile", async () => {
+    render(<App />);
+    fireEvent.click(screen.getByRole("tab", { name: "Guardrails" }));
+    await waitFor(() => expect(screen.getByLabelText("Injection guard")).toBeTruthy());
+
+    fireEvent.click(screen.getByLabelText("Injection guard")); // turn it off
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    await waitFor(() => expect(screen.getByText(/round-trip through the gateway/)).toBeTruthy());
+
+    const res = await mockGatewayFetch("https://gateway.local/v1/profiles?useCase=support-triage", { method: "GET" });
+    const body = (await res.json()) as { profiles: Array<{ guardrails: { injectionGuard?: boolean } }> };
+    expect(body.profiles[0].guardrails.injectionGuard).toBe(false);
   });
 });
 

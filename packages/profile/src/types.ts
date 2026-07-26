@@ -60,6 +60,9 @@ export interface PromptConfig {
 /** Safety and policy configuration. Filled in by the guardrails workstream. */
 export interface GuardrailsConfig {
   pii?: boolean;
+  /** What to do on a PII hit: mask the matches ("redact") or refuse ("block").
+   *  Defaults to "redact" when pii is on and this is unset. */
+  piiAction?: "redact" | "block";
   injectionGuard?: boolean;
   /** Schema the output must conform to, shape defined by the guardrails workstream. */
   outputSchema?: unknown;
