@@ -73,6 +73,41 @@ matrix:
 `{ precision, recall, f1, accuracy, support }`. Division by zero degrades to 0
 rather than NaN so reports stay renderable.
 
+## Check-method registry and the declarative gate
+
+Evals are declarative and per use case. A `UseCaseProfile` names its gates in
+`profile.evals`, each an `{ key, method, params?, threshold?, floor?, mandatory?,
+when }` spec. `method` resolves against a pluggable registry, and the same spec
+list drives both the inline gate and the offline harness.
+
+Built-in methods register into `@conduit/profile`'s shared `methodRegistry` on
+import. Each has one signature: `(ctx: { answer, retrieved?, input?, params?,
+deps? }) => { pass, label?, detail? }` (sync or async).
+
+- `regex`, `contains`: `params.pattern` match over the answer.
+- `json_schema`: parse the answer as JSON and validate against `params.schema`.
+- `numeric_match`: every `params.expected` figure appears in the answer.
+- `pii_scan`: heuristic flag for emails, phone numbers, and card-like runs.
+- `exact_match`: answer equals `params.expected`.
+- `groundedness`: `@conduit/rag` lexical-overlap check against `retrieved`.
+- `llm_judge`: wraps `llmJudgeCheck` with an injected `deps.judgeModelCall`.
+
+`runGate(specs, ctx, deps)` runs the inline specs and combines them fail closed:
+a mandatory or floor spec that fails blocks the response (`blocked`); one whose
+method is missing or throws is `failed_closed`; otherwise `passed`. Only
+`when: "inline"` specs run inline.
+
+`runBatch(specs, dataset, deps)` runs each `when: "batch"` spec over a dataset
+through `runEval`, returning named confusion-matrix metrics per spec. One spec
+list, two surfaces.
+
+```ts
+import { runGate, runBatch, registerBuiltInMethods } from "@conduit/evals";
+
+const out = await runGate(profile.evals, { answer, retrieved }, {});
+// out: { decision: "passed" | "blocked" | "failed_closed", results: [...] }
+```
+
 ## Report
 
 `buildReport(runs)` produces one summary per run plus a pooled overall summary.

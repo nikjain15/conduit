@@ -288,13 +288,27 @@ const SAMPLE_SYSTEM_REF: Record<string, string> = {
   "code-review": "code-review.system",
 };
 
+/** The registry check method each sample gate resolves to. Keyed by gate id so
+ *  the console editor shows a real registry method, not the prose metric name. */
+const GATE_METHOD: Record<string, string> = {
+  "intent-acc": "exact_match",
+  "pii-block": "pii_scan",
+  grounding: "groundedness",
+  faithful: "llm_judge",
+  tone: "llm_judge",
+  claims: "llm_judge",
+  numeric: "numeric_match",
+  "no-advice": "regex",
+  "false-pos": "llm_judge",
+  "secret-scan": "pii_scan",
+};
+
 function evalsForUseCase(useCaseId: string): UseCaseProfile["evals"] {
   const setup = EVAL_SETUP.find((s) => s.useCaseId === useCaseId);
   if (!setup) return [];
   return setup.gates.map((g) => ({
     key: g.id,
-    method: g.metric,
-    threshold: g.threshold,
+    method: GATE_METHOD[g.id] ?? "regex",
     floor: g.kind === "inline",
     mandatory: true,
     when: g.kind,

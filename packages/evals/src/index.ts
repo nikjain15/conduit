@@ -13,3 +13,33 @@ export { runEval, type RunEvalArgs } from "./runner";
 export { exactMatch, predicate } from "./checkers";
 export { llmJudgeCheck, type JudgeModelCall, type LlmJudgeOptions } from "./judgeCheck";
 export { buildReport, formatReport } from "./report";
+
+export {
+  builtInMethods,
+  builtInMethodNames,
+  registerBuiltInMethods,
+  getMethod,
+  type CheckMethod,
+  type MethodContext,
+  type MethodResult,
+  type MethodDeps,
+} from "./methods";
+
+export {
+  runGate,
+  runBatch,
+  type GateDecision,
+  type GateOutcome,
+  type GateSpecResult,
+  type GateContext,
+  type GateDeps,
+  type BatchInput,
+  type BatchOutcome,
+  type BatchSpecMetrics,
+} from "./gate";
+
+import { registerBuiltInMethods as registerAll } from "./methods";
+
+// Register the built-in check methods into @conduit/profile's shared
+// methodRegistry on import so any profile that names a built-in resolves it.
+registerAll();

@@ -21,6 +21,7 @@ import type {
   RunAgentParams,
   UsageParams,
   UsageResult,
+  UseCaseProfile,
 } from "./types.ts";
 
 function trimSlash(url: string): string {
@@ -104,6 +105,10 @@ export function createGatewayClient(config: GatewayConfig): ConduitClient {
       const useCase = params?.useCase;
       const query = useCase ? `?useCase=${encodeURIComponent(useCase)}` : "";
       return request<ProfilesResult>("GET", `/v1/profiles${query}`);
+    },
+
+    updateProfile(profile: UseCaseProfile): Promise<UseCaseProfile> {
+      return request<UseCaseProfile>("PUT", `/v1/profiles/${encodeURIComponent(profile.id)}`, profile);
     },
   };
 }

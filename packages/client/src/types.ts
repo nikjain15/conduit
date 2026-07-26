@@ -206,6 +206,8 @@ export interface ConduitClient {
   models?(params?: ModelsParams): Promise<ModelsResult>;
   /** List use case profiles. Optional: only gateway mode serves it. */
   profiles?(params?: ProfilesParams): Promise<ProfilesResult>;
+  /** Persist an edited use case profile. Optional: only gateway mode serves it. */
+  updateProfile?(profile: UseCaseProfile): Promise<UseCaseProfile>;
 }
 
 /* ── Injected HTTP transport (gateway mode) ───────────────────────────────── */

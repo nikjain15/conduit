@@ -8,7 +8,7 @@
  *
  * Responses are sample data. Nothing here is a live measurement.
  */
-import type { FetchLike, HttpResponseLike } from "@conduit/client";
+import type { FetchLike, HttpResponseLike, UseCaseProfile } from "@conduit/client";
 import {
   CURATED_MODELS,
   mergeCatalog,
@@ -25,6 +25,13 @@ const MOCK_CATALOG = mergeCatalog(
   OPENROUTER_SNAPSHOT.map(normalizeOpenRouterModel),
   CURATED_MODELS,
 );
+
+/**
+ * A mutable in-memory copy of the sample profiles. Edits from the Eval setup
+ * editor round-trip through a PUT and land here, so a later GET reflects them
+ * for the life of the page. Seeded from the read-only sample data.
+ */
+const PROFILE_STORE: UseCaseProfile[] = SAMPLE_PROFILES.map((p) => ({ ...p }));
 
 function jsonResponse(body: unknown, status = 200): HttpResponseLike {
   return {
@@ -72,9 +79,21 @@ export const mockGatewayFetch: FetchLike = async (url, init) => {
     const query = url.split("?")[1] ?? "";
     const useCase = new URLSearchParams(query).get("useCase");
     const profiles = useCase
-      ? SAMPLE_PROFILES.filter((p) => p.id === useCase)
-      : SAMPLE_PROFILES;
+      ? PROFILE_STORE.filter((p) => p.id === useCase)
+      : PROFILE_STORE;
     return jsonResponse({ profiles });
+  }
+
+  if (method === "PUT" && path.startsWith("/v1/profiles/")) {
+    const id = decodeURIComponent(path.slice("/v1/profiles/".length));
+    const updated = init?.body ? (JSON.parse(init.body) as UseCaseProfile) : null;
+    if (!updated || updated.id !== id) {
+      return jsonResponse({ error: "profile id mismatch" }, 400);
+    }
+    const idx = PROFILE_STORE.findIndex((p) => p.id === id);
+    if (idx === -1) return jsonResponse({ error: `no profile ${id}` }, 404);
+    PROFILE_STORE[idx] = updated;
+    return jsonResponse(updated);
   }
 
   if (method === "POST" && path === "/v1/infer") {

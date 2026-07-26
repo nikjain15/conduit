@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, afterEach } from "vitest";
-import { render, screen, cleanup, fireEvent } from "@testing-library/react";
+import { render, screen, cleanup, fireEvent, waitFor, within } from "@testing-library/react";
+import { builtInMethodNames } from "@conduit/evals";
 import { App } from "../src/App.tsx";
 import { mockGatewayFetch } from "../src/data/mockGateway.ts";
 import { MODEL_CONFIG, USE_CASES } from "../src/data/sample.ts";
@@ -27,6 +28,57 @@ describe("console shell", () => {
     fireEvent.click(screen.getByRole("tab", { name: "Models" }));
     expect(screen.getByText("Support triage")).toBeTruthy();
     expect(screen.getAllByText("Main model").length).toBe(USE_CASES.length);
+  });
+});
+
+describe("Eval setup editor", () => {
+  it("renders the active use case specs and a registry-backed method dropdown", async () => {
+    render(<App />);
+    fireEvent.click(screen.getByRole("tab", { name: "Eval setup" }));
+
+    // Profiles load asynchronously through the mock gateway.
+    await waitFor(() => expect(screen.getByText("Inline gates")).toBeTruthy());
+
+    // Every built-in method name appears as an option in the method dropdowns.
+    const methodSelects = screen.getAllByLabelText("Method");
+    expect(methodSelects.length).toBeGreaterThan(0);
+    const optionValues = new Set(
+      within(methodSelects[0] as HTMLSelectElement)
+        .getAllByRole("option")
+        .map((o) => (o as HTMLOptionElement).value),
+    );
+    for (const name of builtInMethodNames) expect(optionValues.has(name)).toBe(true);
+  });
+
+  it("adds a spec when the add button is clicked", async () => {
+    render(<App />);
+    fireEvent.click(screen.getByRole("tab", { name: "Eval setup" }));
+    await waitFor(() => expect(screen.getByText("Inline gates")).toBeTruthy());
+
+    const before = screen.getAllByLabelText("Gate key").length;
+    fireEvent.click(screen.getByRole("button", { name: "Add inline gate" }));
+    const after = screen.getAllByLabelText("Gate key").length;
+    expect(after).toBe(before + 1);
+  });
+});
+
+describe("mock gateway profile round-trip", () => {
+  it("persists an edited profile through PUT and serves it back", async () => {
+    const getRes = await mockGatewayFetch("https://gateway.local/v1/profiles?useCase=kb-search", { method: "GET" });
+    const { profiles } = (await getRes.json()) as { profiles: Array<{ id: string; evals?: unknown[] }> };
+    const profile = profiles[0];
+    const edited = { ...profile, evals: [{ key: "new-gate", method: "pii_scan", when: "inline", mandatory: true, floor: true }] };
+
+    const putRes = await mockGatewayFetch("https://gateway.local/v1/profiles/kb-search", {
+      method: "PUT",
+      body: JSON.stringify(edited),
+    });
+    expect(putRes.ok).toBe(true);
+
+    const afterRes = await mockGatewayFetch("https://gateway.local/v1/profiles?useCase=kb-search", { method: "GET" });
+    const after = (await afterRes.json()) as { profiles: Array<{ evals: Array<{ key: string }> }> };
+    expect(after.profiles[0].evals).toHaveLength(1);
+    expect(after.profiles[0].evals[0].key).toBe("new-gate");
   });
 });
 

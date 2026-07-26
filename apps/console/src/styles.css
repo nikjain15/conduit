@@ -154,6 +154,7 @@ a:hover { text-decoration: underline; }
   margin: 0 0 5px;
 }
 .field select,
+.field input[type="text"],
 .field input[type="number"] {
   width: 100%;
   font: inherit;
