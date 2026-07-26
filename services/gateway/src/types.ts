@@ -8,6 +8,18 @@
  * network, no clock, and no open port.
  */
 import type { ChatMessage } from "@conduit/inference";
+import type { CatalogModel } from "@conduit/catalog";
+
+/**
+ * The catalog source the gateway injects into the models endpoint. The live
+ * OpenRouter fetch is a function so tests supply a mock and no network is hit;
+ * the curated entries are static. The gateway caches the fetch result in
+ * process, so this function should perform the real request each time it runs.
+ */
+export interface CatalogSource {
+  fetchOpenRouter(): Promise<CatalogModel[]>;
+  curated: CatalogModel[];
+}
 
 /** A resolved tenant. The gateway derives this from the API key and never
  *  trusts a client-supplied tenant field. */
@@ -130,6 +142,16 @@ export interface GatewayDeps extends GatewayCores {
   meter: MeterSink;
   /** Clock seam, defaults to Date.now. */
   now?: () => number;
+  /** Model catalog source for GET /v1/models. Optional so cores that do not
+   *  serve the catalog endpoint need not provide it. */
+  catalog?: CatalogSource;
+}
+
+/** Response shape of GET /v1/models. `recommended` is present only when a
+ *  useCase is supplied. */
+export interface ModelsResult {
+  models: CatalogModel[];
+  recommended?: string[];
 }
 
 /** A request parsed by the transport into a shape the router understands. The

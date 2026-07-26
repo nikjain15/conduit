@@ -42,6 +42,24 @@ describe("mock gateway", () => {
     expect(body.totalCostUsd).toBe(sum);
   });
 
+  it("serves the merged catalog and recommends per use case", async () => {
+    const all = await mockGatewayFetch("https://gateway.local/v1/models", { method: "GET" });
+    const allBody = (await all.json()) as { models: Array<{ ref: string; provider: string }>; recommended?: string[] };
+    const providers = new Set(allBody.models.map((m) => m.provider));
+    expect(providers.has("openrouter")).toBe(true);
+    expect(providers.has("anthropic")).toBe(true);
+    expect(providers.has("workers-ai")).toBe(true);
+    expect(allBody.recommended).toBeUndefined();
+
+    const scoped = await mockGatewayFetch("https://gateway.local/v1/models?useCase=support-triage", { method: "GET" });
+    const scopedBody = (await scoped.json()) as { models: unknown[]; recommended: string[] };
+    expect(Array.isArray(scopedBody.recommended)).toBe(true);
+    expect(scopedBody.recommended.length).toBeGreaterThan(0);
+    // Every recommended ref must exist in the returned catalog.
+    const refs = new Set((scopedBody.models as Array<{ ref: string }>).map((m) => m.ref));
+    for (const ref of scopedBody.recommended) expect(refs.has(ref)).toBe(true);
+  });
+
   it("routes infer to the pinned model", async () => {
     const res = await mockGatewayFetch("https://gateway.local/v1/infer", {
       method: "POST",

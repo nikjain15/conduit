@@ -13,6 +13,7 @@ export {
   handleAgent,
   handleEvalsRun,
   handleUsage,
+  handleModels,
   handleHealthz,
 } from "./handlers";
 export { aggregateUsage, withinWindow, parseWindow, MemoryMeterSink } from "./metering";
@@ -38,4 +39,6 @@ export type {
   EvalResult,
   UsageResult,
   UsageByUseCase,
+  CatalogSource,
+  ModelsResult,
 } from "./types";

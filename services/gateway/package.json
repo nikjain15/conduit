@@ -14,7 +14,8 @@
   },
   "dependencies": {
     "@conduit/mcp": "0.1.0",
-    "@conduit/inference": "0.1.0"
+    "@conduit/inference": "0.1.0",
+    "@conduit/catalog": "0.1.0"
   },
   "license": "MIT"
 }

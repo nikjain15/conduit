@@ -8,6 +8,9 @@
  * single source of tenant identity and ignore any tenant-like field in the body.
  */
 import type { ChatMessage } from "@conduit/inference";
+import type { CatalogModel } from "@conduit/catalog";
+import type { CatalogSource } from "./types";
+import { mergeCatalog, recommendForUseCase, USE_CASE_PROFILES } from "@conduit/catalog";
 import { aggregateUsage, parseWindow, withinWindow } from "./metering";
 import type {
   AgentTask,
@@ -15,6 +18,7 @@ import type {
   EvalTask,
   GatewayDeps,
   InferTask,
+  ModelsResult,
   ParsedRequest,
   RetrieveTask,
   RouteResponse,
@@ -148,6 +152,58 @@ export async function handleUsage(
   const decisions = await deps.meter.list(tenant.id);
   const scoped = withinWindow(decisions, since);
   return { status: 200, json: aggregateUsage(scoped) };
+}
+
+/** In-process cache of the OpenRouter fetch, keyed by the catalog source so
+ *  each server (and each test's deps) has its own isolated cache. */
+interface CacheEntry {
+  at: number;
+  models: CatalogModel[];
+}
+const OPENROUTER_TTL_MS = 60 * 60 * 1000; // ~1h
+const openrouterCache = new WeakMap<CatalogSource, CacheEntry>();
+
+/** Fetch OpenRouter models through the ~1h in-process cache. The clock is
+ *  injected so tests control expiry without real time passing. */
+async function cachedOpenRouter(catalog: CatalogSource, now: number): Promise<CatalogModel[]> {
+  const hit = openrouterCache.get(catalog);
+  if (hit && now - hit.at < OPENROUTER_TTL_MS) return hit.models;
+  const models = await catalog.fetchOpenRouter();
+  openrouterCache.set(catalog, { at: now, models });
+  return models;
+}
+
+/**
+ * GET /v1/models?useCase=<id>. Merges live OpenRouter models with the curated
+ * entries. With a useCase it also returns `recommended` refs via the shared
+ * per-useCase profile map. A client cannot influence the catalog through the
+ * body or an api-key field: only the injected source and the query string are
+ * consulted.
+ */
+export async function handleModels(
+  req: ParsedRequest,
+  deps: GatewayDeps,
+  _tenant: Tenant,
+): Promise<RouteResponse> {
+  const catalog = deps.catalog;
+  if (!catalog) {
+    return { status: 503, json: { error: "catalog_unavailable", message: "no catalog source configured" } };
+  }
+
+  const now = (deps.now ?? Date.now)();
+  const openrouter = await cachedOpenRouter(catalog, now);
+  const models = mergeCatalog(openrouter, catalog.curated);
+
+  const useCase = req.query.get("useCase");
+  if (!useCase) {
+    const result: ModelsResult = { models };
+    return { status: 200, json: result };
+  }
+
+  const profile = USE_CASE_PROFILES[useCase];
+  const recommended = profile ? recommendForUseCase(models, profile) : [];
+  const result: ModelsResult = { models, recommended };
+  return { status: 200, json: result };
 }
 
 /** GET /healthz. No auth. */

@@ -9,7 +9,22 @@
  * Responses are sample data. Nothing here is a live measurement.
  */
 import type { FetchLike, HttpResponseLike } from "@conduit/client";
+import {
+  CURATED_MODELS,
+  mergeCatalog,
+  normalizeOpenRouterModel,
+  recommendForUseCase,
+  USE_CASE_PROFILES,
+} from "@conduit/catalog";
 import { COST_TREND, MODEL_CONFIG, modelLabel } from "./sample.ts";
+import { OPENROUTER_SNAPSHOT } from "./openrouterSnapshot.ts";
+
+/** The merged catalog the mock serves: the sample OpenRouter snapshot plus the
+ *  curated managed and edge entries, normalized the same way the gateway does. */
+const MOCK_CATALOG = mergeCatalog(
+  OPENROUTER_SNAPSHOT.map(normalizeOpenRouterModel),
+  CURATED_MODELS,
+);
 
 function jsonResponse(body: unknown, status = 200): HttpResponseLike {
   return {
@@ -42,6 +57,15 @@ export const mockGatewayFetch: FetchLike = async (url, init) => {
 
   if (method === "GET" && path === "/v1/usage") {
     return jsonResponse(latestUsage());
+  }
+
+  if (method === "GET" && path === "/v1/models") {
+    const query = url.split("?")[1] ?? "";
+    const useCase = new URLSearchParams(query).get("useCase");
+    if (!useCase) return jsonResponse({ models: MOCK_CATALOG });
+    const profile = USE_CASE_PROFILES[useCase];
+    const recommended = profile ? recommendForUseCase(MOCK_CATALOG, profile) : [];
+    return jsonResponse({ models: MOCK_CATALOG, recommended });
   }
 
   if (method === "POST" && path === "/v1/infer") {

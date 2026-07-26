@@ -49,6 +49,11 @@ export interface UsageParams {
   window?: string;
 }
 
+export interface ModelsParams {
+  /** When set, the gateway also returns `recommended` refs for this use case. */
+  useCase?: string;
+}
+
 /* ── Method results (identical in both modes) ─────────────────────────────── */
 
 export interface InferResult {
@@ -86,6 +91,28 @@ export interface UsageResult {
   byUseCase: Record<string, number>;
 }
 
+/** One routable model in the gateway's normalized catalog shape. Kept local so
+ *  the SDK stays dependency free; structurally matches @conduit/catalog. */
+export interface CatalogModel {
+  ref: string;
+  id: string;
+  name: string;
+  provider: string;
+  contextLength: number;
+  promptPerMTok: number;
+  completionPerMTok: number;
+  inputModalities: string[];
+  outputModalities: string[];
+  supportsSampling: boolean;
+  supportsTools: boolean;
+}
+
+export interface ModelsResult {
+  models: CatalogModel[];
+  /** Present only when the request carried a useCase. */
+  recommended?: string[];
+}
+
 /* ── The unified client surface both modes implement ──────────────────────── */
 
 export interface ConduitClient {
@@ -95,6 +122,8 @@ export interface ConduitClient {
   runAgent(params: RunAgentParams): Promise<AgentResult>;
   evaluate(params: EvaluateParams): Promise<EvaluateResult>;
   usage(params?: UsageParams): Promise<UsageResult>;
+  /** List the routable model catalog. Optional: only gateway mode serves it. */
+  models?(params?: ModelsParams): Promise<ModelsResult>;
 }
 
 /* ── Injected HTTP transport (gateway mode) ───────────────────────────────── */

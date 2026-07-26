@@ -17,6 +17,7 @@ import {
   handleEvalsRun,
   handleHealthz,
   handleInfer,
+  handleModels,
   handleRetrieve,
   handleUsage,
 } from "./handlers";
@@ -51,6 +52,7 @@ const V1_ROUTES: Record<string, Partial<Record<string, AuthedHandler>>> = {
   "/v1/agent": { POST: handleAgent },
   "/v1/evals/run": { POST: handleEvalsRun },
   "/v1/usage": { GET: handleUsage },
+  "/v1/models": { GET: handleModels },
 };
 
 /**

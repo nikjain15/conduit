@@ -12,6 +12,8 @@ import type {
   GatewayConfig,
   InferParams,
   InferResult,
+  ModelsParams,
+  ModelsResult,
   RetrieveParams,
   RetrieveResult,
   RunAgentParams,
@@ -88,6 +90,12 @@ export function createGatewayClient(config: GatewayConfig): ConduitClient {
       const window = params?.window;
       const query = window ? `?window=${encodeURIComponent(window)}` : "";
       return request<UsageResult>("GET", `/v1/usage${query}`);
+    },
+
+    models(params?: ModelsParams): Promise<ModelsResult> {
+      const useCase = params?.useCase;
+      const query = useCase ? `?useCase=${encodeURIComponent(useCase)}` : "";
+      return request<ModelsResult>("GET", `/v1/models${query}`);
     },
   };
 }

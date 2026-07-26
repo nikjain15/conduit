@@ -7,11 +7,14 @@ import { describe, it, expect } from "vitest";
 import { route } from "../src/router";
 import { buildGatewayTools } from "../src/mcp";
 import { MemoryMeterSink } from "../src/metering";
+import type { CatalogModel } from "@conduit/catalog";
 import type {
+  CatalogSource,
   Decision,
   GatewayDeps,
   InferResult,
   InferTask,
+  ModelsResult,
   ParsedRequest,
   Tenant,
 } from "../src/types";
@@ -259,5 +262,112 @@ describe("gateway router", () => {
       deps,
     );
     expect(res.status).toBe(400);
+  });
+});
+
+function model(partial: Partial<CatalogModel> & Pick<CatalogModel, "ref" | "id">): CatalogModel {
+  return {
+    name: partial.id,
+    provider: "openrouter",
+    contextLength: 8000,
+    promptPerMTok: 1,
+    completionPerMTok: 1,
+    inputModalities: ["text"],
+    outputModalities: ["text"],
+    supportsSampling: true,
+    supportsTools: true,
+    ...partial,
+  };
+}
+
+const OR_MODELS: CatalogModel[] = [
+  model({ ref: "openrouter/cheap", id: "cheap", promptPerMTok: 0.1, contextLength: 200000 }),
+  model({ ref: "openrouter/pricey", id: "pricey", promptPerMTok: 9, contextLength: 200000 }),
+];
+const CURATED: CatalogModel[] = [
+  model({ ref: "anthropic/claude-haiku-4-5", id: "claude-haiku-4-5", provider: "anthropic", contextLength: 200000 }),
+];
+
+function makeCatalog(): { source: CatalogSource; fetchCount: () => number } {
+  let count = 0;
+  const source: CatalogSource = {
+    async fetchOpenRouter() {
+      count += 1;
+      return OR_MODELS;
+    },
+    curated: CURATED,
+  };
+  return { source, fetchCount: () => count };
+}
+
+describe("GET /v1/models", () => {
+  it("rejects without a bearer token as 401", async () => {
+    const { source } = makeCatalog();
+    const { deps } = makeDeps({ catalog: source });
+    const res = await route(req({ method: "GET", path: "/v1/models" }), deps);
+    expect(res.status).toBe(401);
+  });
+
+  it("returns the merged OpenRouter and curated models", async () => {
+    const { source } = makeCatalog();
+    const { deps } = makeDeps({ catalog: source });
+    const res = await route(req({ method: "GET", path: "/v1/models", headers: bearer("key-a") }), deps);
+    expect(res.status).toBe(200);
+    const body = res.json as ModelsResult;
+    const refs = body.models.map((m) => m.ref);
+    expect(refs).toContain("openrouter/cheap");
+    expect(refs).toContain("openrouter/pricey");
+    expect(refs).toContain("anthropic/claude-haiku-4-5");
+    expect(body.recommended).toBeUndefined();
+  });
+
+  it("returns recommended refs for a known useCase", async () => {
+    const { source } = makeCatalog();
+    const { deps } = makeDeps({ catalog: source });
+    const res = await route(
+      req({
+        method: "GET",
+        path: "/v1/models",
+        query: new URLSearchParams({ useCase: "support-triage" }),
+        headers: bearer("key-a"),
+      }),
+      deps,
+    );
+    const body = res.json as ModelsResult;
+    // support-triage is high cost sensitivity -> cheapest first.
+    expect(body.recommended?.[0]).toBe("openrouter/cheap");
+    expect(body.recommended).toContain("openrouter/pricey");
+  });
+
+  it("caches the OpenRouter fetch within the TTL and refreshes after it", async () => {
+    const { source, fetchCount } = makeCatalog();
+    let clock = 1_000_000;
+    const { deps } = makeDeps({ catalog: source, now: () => clock });
+    const call = () => route(req({ method: "GET", path: "/v1/models", headers: bearer("key-a") }), deps);
+    await call();
+    await call();
+    expect(fetchCount()).toBe(1);
+    clock += 2 * 60 * 60 * 1000; // advance past the ~1h TTL
+    await call();
+    expect(fetchCount()).toBe(2);
+  });
+
+  it("ignores an api key supplied in the request body", async () => {
+    const { source } = makeCatalog();
+    const { deps } = makeDeps({ catalog: source });
+    const res = await route(
+      req({
+        method: "GET",
+        path: "/v1/models",
+        headers: bearer("key-a"),
+        body: { apiKey: "sk-attacker", openRouterKey: "sk-attacker" },
+      }),
+      deps,
+    );
+    expect(res.status).toBe(200);
+    const body = res.json as ModelsResult;
+    // The catalog came only from the injected source; nothing in the body
+    // changed the result.
+    expect(body.models.map((m) => m.ref)).toContain("openrouter/cheap");
   });
 });

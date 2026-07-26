@@ -28,6 +28,7 @@ export function createClient(config: ClientConfig): ConduitClient {
 export { ConduitError } from "./error.ts";
 export type {
   AgentResult,
+  CatalogModel,
   ChatMessage,
   ChatRole,
   ClientConfig,
@@ -51,6 +52,8 @@ export type {
   InferParams,
   InferResult,
   ModelRef,
+  ModelsParams,
+  ModelsResult,
   RetrievedChunk,
   RetrieveParams,
   RetrieveResult,
