@@ -1,0 +1,15 @@
+{
+  "name": "@conduit/agent",
+  "version": "0.1.0",
+  "description": "Conduit agent loop: a pure, testable bounded reason-act loop. Tools, runtime-loaded skills, and a no-authority invariant (side-effecting tools deny by default). callModel is injected, compatible with @conduit/inference.",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "license": "MIT"
+}

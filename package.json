@@ -1,0 +1,22 @@
+{
+  "name": "conduit",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Conduit: the internal AI platform (routing, evals, RAG, agents, MCP) that products plug into. Hybrid: a control plane and distribution surface, plus embeddable in-process core packages.",
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "services/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.1",
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.4"
+  },
+  "license": "MIT"
+}

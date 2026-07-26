@@ -1,0 +1,15 @@
+{
+  "name": "@conduit/evals",
+  "version": "0.1.0",
+  "description": "Conduit offline eval harness: named datasets, a pluggable runner, deterministic and LLM-as-judge checkers (the latter wrapping @conduit/inference's judge via an injected model call), and confusion-matrix metrics (precision, recall, F1, accuracy) with a plain-text report.",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "license": "MIT"
+}

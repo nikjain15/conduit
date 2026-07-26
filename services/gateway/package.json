@@ -1,0 +1,20 @@
+{
+  "name": "conduit-gateway",
+  "version": "0.1.0",
+  "description": "Conduit gateway: the control-plane service. A thin Node http/URL front door that adds bearer auth, tenant isolation, and per-tenant usage metering over injected inference, retrieval, agent, and eval cores, and mounts the Conduit MCP tools behind the same auth.",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@conduit/mcp": "0.1.0",
+    "@conduit/inference": "0.1.0"
+  },
+  "license": "MIT"
+}
