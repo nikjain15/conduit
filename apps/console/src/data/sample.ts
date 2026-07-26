@@ -17,16 +17,31 @@ export interface ModelOption {
 }
 
 /**
- * Model catalog. The sampling flag mirrors the inference core contract: the
- * newer reasoning models reject sampling params, Haiku 4.5 and older accept
- * them. There is no Haiku 5.
+ * Model catalog across all three provider adapters the inference core supports:
+ * Anthropic (managed), Cloudflare Workers-AI, and OpenRouter (one key, hundreds
+ * of open and closed models). The ref is provider-prefixed; the first segment is
+ * the provider, the remainder is the provider model id.
+ *
+ * The sampling flag mirrors the inference core contract: the current Anthropic
+ * reasoning tiers reject sampling params (temperature, top_p, top_k) with an
+ * HTTP 400, while Haiku 4.5 and the OpenAI-compatible open models accept them.
+ * There is no Haiku 5.
  */
 export const MODEL_CATALOG: ModelOption[] = [
+  // Anthropic (managed)
   { ref: "anthropic/claude-opus-5", label: "Opus 5", supportsSampling: false },
   { ref: "anthropic/claude-opus-4-8", label: "Opus 4.8", supportsSampling: false },
   { ref: "anthropic/claude-sonnet-5", label: "Sonnet 5", supportsSampling: false },
   { ref: "anthropic/claude-fable-5", label: "Fable 5", supportsSampling: false },
   { ref: "anthropic/claude-haiku-4-5", label: "Haiku 4.5", supportsSampling: true },
+  // Cloudflare Workers-AI (hosted open weights, near the edge)
+  { ref: "workers-ai/@cf/meta/llama-3.3-70b-instruct-fp8-fast", label: "Llama 3.3 70B (Workers-AI)", supportsSampling: true },
+  { ref: "workers-ai/@cf/qwen/qwen2.5-coder-32b-instruct", label: "Qwen2.5 Coder 32B (Workers-AI)", supportsSampling: true },
+  // OpenRouter (one key, open and closed models, OpenAI-compatible)
+  { ref: "openrouter/meta-llama/llama-3.3-70b-instruct", label: "Llama 3.3 70B (OpenRouter)", supportsSampling: true },
+  { ref: "openrouter/qwen/qwen-2.5-72b-instruct", label: "Qwen2.5 72B (OpenRouter)", supportsSampling: true },
+  { ref: "openrouter/deepseek/deepseek-chat", label: "DeepSeek V3 (OpenRouter)", supportsSampling: true },
+  { ref: "openrouter/mistralai/mistral-large", label: "Mistral Large (OpenRouter)", supportsSampling: true },
 ];
 
 export function modelLabel(ref: string): string {
@@ -84,22 +99,24 @@ export interface ModelConfig {
 
 export const MODEL_CONFIG: ModelConfig[] = [
   {
+    // Bulk classify: cheap open weights near the edge, escalate to a managed tier on cap.
     useCaseId: "support-triage",
-    mainModel: "anthropic/claude-haiku-4-5",
-    backupModel: "anthropic/claude-sonnet-5",
+    mainModel: "workers-ai/@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+    backupModel: "anthropic/claude-haiku-4-5",
     monthlyCapUsd: 1200,
     reuseCachedAnswers: true,
   },
   {
+    // Grounded retrieval: an open 70B via OpenRouter for bulk, frontier Claude for hard queries.
     useCaseId: "kb-search",
-    mainModel: "anthropic/claude-sonnet-5",
-    backupModel: "anthropic/claude-haiku-4-5",
+    mainModel: "openrouter/meta-llama/llama-3.3-70b-instruct",
+    backupModel: "anthropic/claude-sonnet-5",
     monthlyCapUsd: 2500,
     reuseCachedAnswers: true,
   },
   {
     useCaseId: "sales-draft",
-    mainModel: "anthropic/claude-sonnet-5",
+    mainModel: "openrouter/mistralai/mistral-large",
     backupModel: "anthropic/claude-haiku-4-5",
     monthlyCapUsd: 900,
     reuseCachedAnswers: false,
