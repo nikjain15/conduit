@@ -12,7 +12,7 @@ describe("console shell", () => {
   it("renders the masthead and every section tab", () => {
     render(<App />);
     expect(screen.getByText("Conduit console")).toBeTruthy();
-    for (const label of ["Overview", "Models", "Prompts", "Guardrails", "Agent", "Eval setup", "Cost dashboards", "SUQS SLOs"]) {
+    for (const label of ["Overview", "Models", "Prompts", "Guardrails", "Agent", "Eval setup", "Retrieval", "Cost dashboards", "SUQS SLOs"]) {
       expect(screen.getByRole("tab", { name: label })).toBeTruthy();
     }
   });
@@ -111,6 +111,61 @@ describe("Guardrails editor", () => {
     const res = await mockGatewayFetch("https://gateway.local/v1/profiles?useCase=support-triage", { method: "GET" });
     const body = (await res.json()) as { profiles: Array<{ guardrails: { injectionGuard?: boolean } }> };
     expect(body.profiles[0].guardrails.injectionGuard).toBe(false);
+  });
+});
+
+describe("Retrieval editor", () => {
+  it("renders the active use case config and notes when retrieval is disabled", async () => {
+    render(<App />);
+    fireEvent.click(screen.getByRole("tab", { name: "Retrieval" }));
+    await waitFor(() => expect(screen.getByLabelText("Enable retrieval")).toBeTruthy());
+
+    // The first use case is support-triage, which has no retrieval block.
+    expect((screen.getByLabelText("Enable retrieval") as HTMLInputElement).checked).toBe(false);
+    expect(screen.getByText(/Retrieval is disabled for this use case/)).toBeTruthy();
+  });
+
+  it("renders the config for a use case that has retrieval on", async () => {
+    render(<App />);
+    fireEvent.click(screen.getByRole("tab", { name: "Retrieval" }));
+    await waitFor(() => expect(screen.getByLabelText("Enable retrieval")).toBeTruthy());
+
+    fireEvent.change(screen.getByLabelText("Use case"), { target: { value: "kb-search" } });
+    expect((screen.getByLabelText("Enable retrieval") as HTMLInputElement).checked).toBe(true);
+    // kb-search sample config uses topK 6.
+    expect((screen.getByLabelText("Top K") as HTMLInputElement).value).toBe("6");
+  });
+
+  it("round-trips an edited topK through updateProfile", async () => {
+    render(<App />);
+    fireEvent.click(screen.getByRole("tab", { name: "Retrieval" }));
+    await waitFor(() => expect(screen.getByLabelText("Enable retrieval")).toBeTruthy());
+
+    fireEvent.change(screen.getByLabelText("Use case"), { target: { value: "kb-search" } });
+    fireEvent.change(screen.getByLabelText("Top K"), { target: { value: "9" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    await waitFor(() => expect(screen.getByText(/round-trip through the gateway/)).toBeTruthy());
+
+    const res = await mockGatewayFetch("https://gateway.local/v1/profiles?useCase=kb-search", { method: "GET" });
+    const body = (await res.json()) as { profiles: Array<{ retrieval: { topK: number } }> };
+    expect(body.profiles[0].retrieval.topK).toBe(9);
+  });
+
+  it("toggling enable off nulls the retrieval block through updateProfile", async () => {
+    render(<App />);
+    fireEvent.click(screen.getByRole("tab", { name: "Retrieval" }));
+    await waitFor(() => expect(screen.getByLabelText("Enable retrieval")).toBeTruthy());
+
+    // billing-summary has retrieval on in the sample data; turn it off.
+    fireEvent.change(screen.getByLabelText("Use case"), { target: { value: "billing-summary" } });
+    expect((screen.getByLabelText("Enable retrieval") as HTMLInputElement).checked).toBe(true);
+    fireEvent.click(screen.getByLabelText("Enable retrieval"));
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    await waitFor(() => expect(screen.getByText(/round-trip through the gateway/)).toBeTruthy());
+
+    const res = await mockGatewayFetch("https://gateway.local/v1/profiles?useCase=billing-summary", { method: "GET" });
+    const body = (await res.json()) as { profiles: Array<{ retrieval: unknown }> };
+    expect(body.profiles[0].retrieval).toBe(null);
   });
 });
 

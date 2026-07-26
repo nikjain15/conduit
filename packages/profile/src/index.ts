@@ -21,6 +21,21 @@ export { InMemoryProfileStore } from "./store.ts";
 export { applyDefaults, resolveProfile } from "./resolve.ts";
 export { validateProfile } from "./validate.ts";
 
+export {
+  chunkDoc,
+  getRetrieverBuilder,
+  resolveRetriever,
+  retrieveFor,
+  RETRIEVER_NAMES,
+} from "./retrieval.ts";
+export type {
+  ResolvedRetriever,
+  RetrieveForResult,
+  RetrieverBuilder,
+  RetrieverDeps,
+  RetrieverName,
+} from "./retrieval.ts";
+
 export type {
   AgentConfig,
   ChunkingConfig,

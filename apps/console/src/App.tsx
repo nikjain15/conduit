@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Overview } from "./pages/Overview.tsx";
 import { Models } from "./pages/Models.tsx";
 import { EvalSetup } from "./pages/EvalSetup.tsx";
+import { Retrieval } from "./pages/Retrieval.tsx";
 import { CostDashboards } from "./pages/CostDashboards.tsx";
 import { Suqs } from "./pages/Suqs.tsx";
 import { Prompts } from "./pages/Prompts.tsx";
@@ -16,6 +17,7 @@ const TABS = [
   { id: "guardrails", label: "Guardrails" },
   { id: "agent", label: "Agent" },
   { id: "evals", label: "Eval setup" },
+  { id: "retrieval", label: "Retrieval" },
   { id: "cost", label: "Cost dashboards" },
   { id: "suqs", label: "SUQS SLOs" },
 ] as const;
@@ -57,6 +59,7 @@ export function App() {
         {tab === "guardrails" && <Guardrails />}
         {tab === "agent" && <Agent />}
         {tab === "evals" && <EvalSetup />}
+        {tab === "retrieval" && <Retrieval />}
         {tab === "cost" && <CostDashboards />}
         {tab === "suqs" && <Suqs />}
       </main>
