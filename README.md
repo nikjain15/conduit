@@ -18,6 +18,10 @@ That split is deliberate. The runtime path is a pure, in-process function so a s
 | Package | `@conduit/agent` | A bounded agent loop: goal plus typed tools plus runtime-loaded skills. Reads only, no unchecked side effects. |
 | Package | `@conduit/evals` | The eval ladder: deterministic gates, an LLM-judge panel, named metrics (recall / precision / F1). |
 | Package | `@conduit/mcp` | Build an MCP server from a set of tools; stdio for local, HTTP/SSE for hosted distribution. |
+| Package | `@conduit/catalog` | Live model catalog from OpenRouter plus curated Anthropic and Workers-AI tiers, with use-case-aware recommendations. |
+| Package | `@conduit/profile` | The `UseCaseProfile`: the single config object that composes routing, retrieval, agent, prompts, guardrails, evals, and SLOs per use case. A new use case is config, not a redeploy. |
+| Package | `@conduit/prompts` | Versioned prompt registry with template and variable resolution. |
+| Package | `@conduit/guardrails` | Fail-closed policy engine: prompt-injection detection, PII redaction or block, output-schema enforcement, human-in-the-loop escalation, and mandatory floors. |
 | Package | `@conduit/client` | The thin SDK an app imports: embed the core in process, or point at the gateway. |
 | Service | `conduit-gateway` | Back end: HTTP plus MCP over the packages, with auth, tenant isolation, and metering. |
 | App | `conduit-console` | Front end: model config, eval setup, RAG config, cost dashboards, SUQS SLOs. |
@@ -28,4 +32,4 @@ Sampling parameters (`temperature` / `top_p` / `top_k`) are a per-model API cont
 
 ## Status
 
-`@conduit/inference` is promoted from a production inference core and typechecks clean. The remaining packages, the gateway, and the console are in active build.
+All ten packages typecheck clean and are unit-tested in CI (213 tests), with `@conduit/inference` promoted from a production inference core. The gateway and console build in CI, and the console is live at nikjain15.github.io/conduit against a mock gateway that starts empty, real usage and SUQS SLOs appear once a gateway runs with a live API key and metered traffic. The four apps embed the client and route their AI through Conduit in process today; central gateway reporting is wired and dormant until a gateway is deployed.
