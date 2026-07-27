@@ -1,13 +1,65 @@
 # Conduit
 
-The internal AI platform that products plug into: one place for model routing, evals, retrieval, agent orchestration, and cost governance, exposed over a standard interface (including MCP).
+**One control plane for model routing, evals, RAG, agents, and cost, so a new AI use case is config, not a rebuild.**
+
+[![CI](https://github.com/nikjain15/conduit/actions/workflows/ci.yml/badge.svg)](https://github.com/nikjain15/conduit/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
+[![tests](https://img.shields.io/badge/tests-213%20passing-brightgreen.svg)](https://github.com/nikjain15/conduit/actions/workflows/ci.yml)
+[![packages](https://img.shields.io/badge/packages-10-informational.svg)](#layout)
+
+Live console: **[nikjain15.github.io/conduit](https://nikjain15.github.io/conduit)** (runs against a mock gateway that starts empty).
+
+Demo GIF below.
+
+<!-- DEMO_GIF -->
 
 Conduit is **hybrid** by design:
 
 - A **control plane and distribution surface**: a console for model config, eval setup, and cost dashboards; a gateway that speaks HTTP and MCP.
 - A set of **embeddable core packages**: apps import them and run inference **in process**, so every product stays runnable standalone and low latency. Apps can opt into the gateway when they want centralized routing.
 
-That split is deliberate. The runtime path is a pure, in-process function so a single product clone runs its own AI with no network dependency; the platform owns configuration, evaluation, distribution, and observability.
+The runtime path is a pure, in-process function, so a single product clone runs its own AI with no network dependency. The platform owns configuration, evaluation, distribution, and observability. Every request resolves through one core that speaks to multiple providers (Anthropic, Cloudflare Workers-AI, OpenRouter), and a new use case is a `UseCaseProfile` object, not a fresh integration.
+
+## Why I built this
+
+The same plumbing gets rebuilt for every AI product: routing, retrieval, an agent loop, evals, guardrails, cost tracking. Each rebuild drifts, and none of it is reusable. Conduit makes that plumbing one config-driven control plane, so shipping a new use case means writing a profile, not re-implementing the stack.
+
+## Try it in 60 seconds
+
+Run the console locally:
+
+```bash
+git clone https://github.com/nikjain15/conduit.git
+cd conduit
+npm install
+npm run dev --workspace @conduit/console
+```
+
+Vite serves the console; open the printed local URL. It runs against a mock gateway that starts empty, so no API key is needed to explore.
+
+Connect an external agent to a Conduit MCP server over stdio. Write a small entry script that wires your tools:
+
+```ts
+import { startStdioServer } from "@conduit/mcp/stdio";
+import { tools } from "./my-tools";
+
+await startStdioServer({ name: "conduit", version: "0.1.0", tools });
+```
+
+Then point a local MCP client (such as Claude Desktop) at it:
+
+```jsonc
+{
+  "mcpServers": {
+    "conduit": {
+      "command": "node",
+      "args": ["./dist/conduit-mcp-stdio.js"]
+    }
+  }
+}
+```
+
+The client calls `tools/list` to discover tools and `tools/call` to run one; arguments are validated against each tool's JSON Schema before the handler runs. See [`packages/mcp/docs/connecting-clients.md`](./packages/mcp/docs/connecting-clients.md) for the hosted HTTP/SSE shape.
 
 ## Layout
 
