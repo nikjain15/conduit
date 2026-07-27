@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { useState } from "react";
 import type { UseCaseProfile } from "@conduit/client";
 import { client } from "../data/client.ts";
-import { SAMPLE_NOTICE } from "../data/sample.ts";
+import { appOfUseCase, SAMPLE_NOTICE } from "../data/sample.ts";
 import { useProfiles } from "./useProfiles.ts";
+import { AppHeading, groupByApp, UseCaseTag } from "./AppGroup.tsx";
 
 type Guardrails = NonNullable<UseCaseProfile["guardrails"]>;
 
@@ -16,48 +17,21 @@ function schemaToText(schema: unknown): string {
   }
 }
 
-/**
- * Guardrails tab: an editor for the guardrails sub section of each use case
- * profile. It toggles PII handling (with a redact or block policy), the injection
- * guard, edits the output schema and the human in the loop threshold, and picks
- * the mandatory floors from the use case's own eval keys. Edits persist through
- * the gateway.
- */
-export function Guardrails() {
-  const { profiles, status } = useProfiles();
-  const [draft, setDraft] = useState<UseCaseProfile[]>([]);
-  const [activeId, setActiveId] = useState<string>("");
+interface CardProps {
+  profile: UseCaseProfile;
+}
+
+function GuardrailsCard({ profile }: CardProps) {
+  const [draft, setDraft] = useState<UseCaseProfile>(profile);
   const [saveState, setSaveState] = useState<string>("");
-  const [schemaText, setSchemaText] = useState<string>("");
+  const [schemaText, setSchemaText] = useState<string>(schemaToText(profile.guardrails?.outputSchema));
   const [schemaError, setSchemaError] = useState<string>("");
+  const app = appOfUseCase(profile.id);
+  const g: Guardrails = draft.guardrails ?? {};
+  const evalKeys = (draft.evals ?? []).map((e) => e.key).filter((k) => k.trim() !== "");
 
-  useEffect(() => {
-    if (status === "ready" && profiles.length > 0) {
-      setDraft(profiles.map((p) => ({ ...p, guardrails: { ...(p.guardrails ?? {}) } })));
-      setActiveId((prev) => prev || profiles[0].id);
-    }
-  }, [status, profiles]);
-
-  const active = draft.find((p) => p.id === activeId);
-  const g: Guardrails = active?.guardrails ?? {};
-
-  // Keep the schema textarea in step with the active use case.
-  useEffect(() => {
-    setSchemaText(schemaToText(g.outputSchema));
-    setSchemaError("");
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeId]);
-
-  // The floors a use case may pick are its own eval keys.
-  const evalKeys = useMemo(
-    () => (active?.evals ?? []).map((e) => e.key).filter((k) => k.trim() !== ""),
-    [active],
-  );
-
-  function patchGuardrails(patch: Partial<Guardrails>) {
-    setDraft((prev) =>
-      prev.map((p) => (p.id === activeId ? { ...p, guardrails: { ...g, ...patch } } : p)),
-    );
+  function patch(patchG: Partial<Guardrails>) {
+    setDraft((p) => ({ ...p, guardrails: { ...(p.guardrails ?? {}), ...patchG } }));
     setSaveState("");
   }
 
@@ -66,13 +40,13 @@ export function Guardrails() {
     setSaveState("");
     if (text.trim() === "") {
       setSchemaError("");
-      patchGuardrails({ outputSchema: undefined });
+      patch({ outputSchema: undefined });
       return;
     }
     try {
       const parsed = JSON.parse(text);
       setSchemaError("");
-      patchGuardrails({ outputSchema: parsed });
+      patch({ outputSchema: parsed });
     } catch {
       setSchemaError("Output schema is not valid JSON. It will not be saved until fixed.");
     }
@@ -82,86 +56,46 @@ export function Guardrails() {
     const current = new Set(g.floors ?? []);
     if (on) current.add(key);
     else current.delete(key);
-    patchGuardrails({ floors: [...current] });
+    patch({ floors: [...current] });
   }
 
   async function save() {
-    if (!active || !client.updateProfile) return;
+    if (!client.updateProfile) return;
     if (schemaError) {
       setSaveState("Fix the output schema before saving.");
       return;
     }
     setSaveState("Saving.");
     try {
-      await client.updateProfile(active);
+      await client.updateProfile(draft);
       setSaveState("Saved. Edits round-trip through the gateway.");
     } catch {
       setSaveState("Save failed.");
     }
   }
 
-  if (status === "loading") {
-    return (
-      <section className="page">
-        <h2>Guardrails</h2>
-        <p className="lead">Loading use case profiles.</p>
-      </section>
-    );
-  }
-  if (status === "error" || !active) {
-    return (
-      <section className="page">
-        <h2>Guardrails</h2>
-        <p className="lead">Could not load use case profiles.</p>
-      </section>
-    );
-  }
-
   return (
-    <section className="page">
-      <h2>Guardrails</h2>
-      <p className="lead">
-        The safety and policy controls each use case enforces: PII handling, injection defence, a
-        structured output schema, a human in the loop threshold, and the mandatory floors that always
-        apply. The engine combines these fail-closed, so the most severe outcome wins.
-      </p>
-      <span className="notice">{SAMPLE_NOTICE}</span>
+    <div className="card">
+      <UseCaseTag app={app} useCase={profile.name} />
 
-      <div className="field" style={{ maxWidth: 360 }}>
-        <label htmlFor="guardrails-usecase">Use case</label>
-        <select
-          id="guardrails-usecase"
-          value={activeId}
-          onChange={(e) => {
-            setActiveId(e.target.value);
-            setSaveState("");
-          }}
-        >
-          {draft.map((p) => (
-            <option key={p.id} value={p.id}>{p.name}</option>
-          ))}
-        </select>
-      </div>
-
-      <div className="card">
-        <h3>PII protection</h3>
+      <div className="field">
         <div className="toggle-row">
           <input
             type="checkbox"
-            aria-label="PII protection"
+            aria-label={`PII protection ${profile.id}`}
             checked={g.pii === true}
-            onChange={(e) => patchGuardrails({ pii: e.target.checked })}
+            onChange={(e) => patch({ pii: e.target.checked })}
           />
           <span className="toggle-note">Scan answers for PII before they are served.</span>
         </div>
         {g.pii && (
           <div className="field" style={{ maxWidth: 260 }}>
-            <label htmlFor="pii-action">On a PII hit</label>
+            <label htmlFor={`pii-action-${profile.id}`}>On a PII hit</label>
             <select
-              id="pii-action"
-              aria-label="PII policy"
+              id={`pii-action-${profile.id}`}
+              aria-label={`PII policy ${profile.id}`}
               value={g.piiAction ?? "redact"}
-              onChange={(e) => patchGuardrails({ piiAction: e.target.value as Guardrails["piiAction"] })}
+              onChange={(e) => patch({ piiAction: e.target.value as Guardrails["piiAction"] })}
             >
               <option value="redact">Redact (mask the matches)</option>
               <option value="block">Block (refuse the answer)</option>
@@ -170,63 +104,50 @@ export function Guardrails() {
         )}
       </div>
 
-      <div className="card">
-        <h3>Injection guard</h3>
-        <div className="toggle-row">
-          <input
-            type="checkbox"
-            aria-label="Injection guard"
-            checked={g.injectionGuard === true}
-            onChange={(e) => patchGuardrails({ injectionGuard: e.target.checked })}
-          />
-          <span className="toggle-note">
-            Deterministic, heuristic screen for prompt-injection and jailbreak patterns in the input.
-          </span>
-        </div>
+      <div className="toggle-row">
+        <input
+          type="checkbox"
+          aria-label={`Injection guard ${profile.id}`}
+          checked={g.injectionGuard === true}
+          onChange={(e) => patch({ injectionGuard: e.target.checked })}
+        />
+        <span className="toggle-note">
+          Deterministic, heuristic screen for prompt-injection and jailbreak patterns in the input.
+        </span>
       </div>
 
-      <div className="card">
-        <h3>Output schema</h3>
-        <p className="sub">When set, the answer must parse as JSON and validate against this schema.</p>
-        <div className="field">
-          <label htmlFor="output-schema">Schema (JSON)</label>
-          <textarea
-            id="output-schema"
-            aria-label="Output schema"
-            rows={8}
-            value={schemaText}
-            onChange={(e) => onSchemaChange(e.target.value)}
-          />
-          {schemaError && <span className="warn-note">{schemaError}</span>}
-        </div>
+      <div className="field">
+        <label htmlFor={`output-schema-${profile.id}`}>Output schema (JSON)</label>
+        <textarea
+          id={`output-schema-${profile.id}`}
+          aria-label={`Output schema ${profile.id}`}
+          rows={5}
+          value={schemaText}
+          onChange={(e) => onSchemaChange(e.target.value)}
+        />
+        {schemaError && <span className="warn-note">{schemaError}</span>}
       </div>
 
-      <div className="card">
-        <h3>Human in the loop</h3>
-        <div className="field" style={{ maxWidth: 260 }}>
-          <label htmlFor="hitl">Confidence threshold</label>
-          <input
-            id="hitl"
-            type="number"
-            step="0.05"
-            min="0"
-            max="1"
-            aria-label="Human in the loop threshold"
-            value={g.hitlThreshold ?? ""}
-            onChange={(e) => {
-              const raw = e.target.value.trim();
-              patchGuardrails({ hitlThreshold: raw === "" ? undefined : Number(raw) });
-            }}
-          />
-          <span className="toggle-note">A confidence below this escalates to a human review.</span>
-        </div>
+      <div className="field" style={{ maxWidth: 260 }}>
+        <label htmlFor={`hitl-${profile.id}`}>Human in the loop confidence threshold</label>
+        <input
+          id={`hitl-${profile.id}`}
+          type="number"
+          step="0.05"
+          min="0"
+          max="1"
+          aria-label={`Human in the loop threshold ${profile.id}`}
+          value={g.hitlThreshold ?? ""}
+          onChange={(e) => {
+            const raw = e.target.value.trim();
+            patch({ hitlThreshold: raw === "" ? undefined : Number(raw) });
+          }}
+        />
       </div>
 
-      <div className="card">
-        <h3>Floors</h3>
-        <p className="sub">
-          Mandatory eval keys for this use case. A floor that does not run fails closed and blocks.
-        </p>
+      <div className="field">
+        <label>Floors</label>
+        <p className="sub">Mandatory eval keys. A floor that does not run fails closed and blocks.</p>
         {evalKeys.length === 0 ? (
           <p className="muted" style={{ fontSize: 13 }}>This use case has no eval keys to select as floors.</p>
         ) : (
@@ -234,7 +155,7 @@ export function Guardrails() {
             <div className="toggle-row" key={key}>
               <input
                 type="checkbox"
-                aria-label={`Floor ${key}`}
+                aria-label={`Floor ${key} ${profile.id}`}
                 checked={(g.floors ?? []).includes(key)}
                 onChange={(e) => toggleFloor(key, e.target.checked)}
               />
@@ -245,11 +166,55 @@ export function Guardrails() {
       </div>
 
       <div className="actions">
-        <button type="button" className="link-action" onClick={() => void save()}>
+        <button type="button" className="link-action" aria-label={`Save ${profile.id}`} onClick={() => void save()}>
           Save changes
         </button>
         {saveState && <span className="action-result">{saveState}</span>}
       </div>
+    </div>
+  );
+}
+
+export function Guardrails() {
+  const { profiles, status } = useProfiles();
+
+  if (status === "loading") {
+    return (
+      <section className="page">
+        <h2>Guardrails</h2>
+        <p className="lead">Loading use case profiles.</p>
+      </section>
+    );
+  }
+  if (status === "error" || profiles.length === 0) {
+    return (
+      <section className="page">
+        <h2>Guardrails</h2>
+        <p className="lead">Could not load use case profiles.</p>
+      </section>
+    );
+  }
+
+  const groups = groupByApp(profiles, (p) => p.id);
+
+  return (
+    <section className="page">
+      <h2>Guardrails</h2>
+      <p className="lead">
+        The safety and policy controls each use case enforces, grouped by app: PII handling, injection
+        defence, a structured output schema, a human in the loop threshold, and the mandatory floors
+        that always apply. The engine combines these fail-closed, so the most severe outcome wins.
+      </p>
+      <span className="notice">{SAMPLE_NOTICE}</span>
+
+      {groups.map((g) => (
+        <div className="app-group" key={g.app}>
+          <AppHeading label={g.label} count={g.items.length} />
+          {g.items.map((p) => (
+            <GuardrailsCard key={p.id} profile={p} />
+          ))}
+        </div>
+      ))}
     </section>
   );
 }

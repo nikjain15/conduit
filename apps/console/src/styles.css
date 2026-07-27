@@ -317,3 +317,49 @@ table.data tr:last-child td { border-bottom: none; }
   color: var(--text);
 }
 .warn-note { color: var(--bad); font-size: 12px; }
+
+/* App grouping: every tab groups its use cases under the app they belong to. */
+.app-group { margin: 0 0 30px; }
+.app-heading {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin: 0 0 12px;
+  padding: 0 0 6px;
+  border-bottom: 1px solid var(--border);
+}
+.app-heading h3 {
+  margin: 0;
+  font-size: 15.5px;
+  color: var(--text);
+}
+.app-heading .app-count { color: var(--text-faint); font-size: 12.5px; }
+
+/* The "app / useCase" tag shown on every per-use-case card. */
+.uc-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  color: var(--text-muted);
+  background: var(--accent-soft);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 2px 8px;
+  margin: 0 0 8px;
+}
+.uc-tag .uc-tag-app { color: var(--accent); font-weight: 600; }
+.uc-tag .uc-tag-sep { color: var(--text-faint); }
+
+/* Per-app spend/health rollup on the dashboards. */
+.app-rollup {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+.app-rollup:last-child { border-bottom: none; }
+.app-rollup .app-rollup-name { font-weight: 600; color: var(--text); }

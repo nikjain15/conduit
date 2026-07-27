@@ -31,6 +31,8 @@ export { createGatewayServer } from "./server";
 
 export type {
   Tenant,
+  App,
+  Principal,
   LookupTenant,
   DecisionStore,
   DecisionQuery,
@@ -48,7 +50,10 @@ export type {
   EvalTask,
   EvalResult,
   UsageResult,
+  UsageApp,
+  UsageUseCase,
   SuqsResult,
+  SuqsApp,
   SuqsRow,
   SloTarget,
   SloTargetLookup,

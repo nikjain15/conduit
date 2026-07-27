@@ -18,59 +18,95 @@ import type {
   DecisionQuery,
   DecisionStore,
   SloTarget,
+  SuqsApp,
   SuqsResult,
   SuqsRow,
+  UsageApp,
   UsageResult,
 } from "./types";
 
-/** Fold decisions into a total and a per-use-case cost map. Pure. Empty in,
- *  empty out: no decisions yields `{ totalCostUsd: 0, byUseCase: {} }`. */
-export function aggregateUsage(decisions: Decision[]): UsageResult {
-  const byUseCase: Record<string, number> = {};
-  let totalCostUsd = 0;
-
+/** Bucket decisions by their app id, preserving a stable label per app. */
+function groupByApp(decisions: Decision[]): Map<string, { label: string; rows: Decision[] }> {
+  const groups = new Map<string, { label: string; rows: Decision[] }>();
   for (const d of decisions) {
-    totalCostUsd += d.costUsd;
-    byUseCase[d.useCase] = round6((byUseCase[d.useCase] ?? 0) + d.costUsd);
+    const entry = groups.get(d.app) ?? { label: d.appLabel ?? d.app, rows: [] };
+    // Keep the first non-empty label seen for the app.
+    if (d.appLabel && entry.label === d.app) entry.label = d.appLabel;
+    entry.rows.push(d);
+    groups.set(d.app, entry);
   }
-
-  return { totalCostUsd: round6(totalCostUsd), byUseCase };
+  return groups;
 }
 
 /**
- * Compute SUQS metrics per use case from real decisions: p95 latency, cost per
- * answer, and gate block rate. `targetFor` supplies the profile SLO target for
- * a use case, or undefined when none is configured (the row's target is then
- * null). Pure and empty-safe: no decisions yields `{ byUseCase: [] }`.
+ * Fold decisions into a tenant-wide total plus a per-app rollup, each app
+ * carrying its own total and per-use-case breakdown. Pure. Empty in, empty out:
+ * no decisions yields `{ totalCostUsd: 0, byApp: [] }`.
+ */
+export function aggregateUsage(decisions: Decision[]): UsageResult {
+  let totalCostUsd = 0;
+  for (const d of decisions) totalCostUsd += d.costUsd;
+
+  const byApp: UsageApp[] = [...groupByApp(decisions).entries()]
+    .map(([app, { label, rows }]) => {
+      const byUseCase = new Map<string, number>();
+      let appTotal = 0;
+      for (const d of rows) {
+        appTotal += d.costUsd;
+        byUseCase.set(d.useCase, round6((byUseCase.get(d.useCase) ?? 0) + d.costUsd));
+      }
+      const useCases = [...byUseCase.entries()]
+        .map(([useCase, costUsd]) => ({ useCase, costUsd }))
+        .sort((a, b) => a.useCase.localeCompare(b.useCase));
+      return { app, appLabel: label, totalCostUsd: round6(appTotal), useCases };
+    })
+    .sort((a, b) => a.app.localeCompare(b.app));
+
+  return { totalCostUsd: round6(totalCostUsd), byApp };
+}
+
+/** Compute one SUQS row from a use case's decisions. */
+function suqsRow(useCase: string, rows: Decision[], target: SloTarget | undefined): SuqsRow {
+  const calls = rows.length;
+  const totalCost = rows.reduce((sum, d) => sum + d.costUsd, 0);
+  const blocked = rows.filter((d) => d.gateStatus === "block").length;
+  return {
+    useCase,
+    calls,
+    p95LatencyMs: percentile(rows.map((d) => d.latencyMs), 95),
+    costPerAnswerUsd: round6(totalCost / calls),
+    gateBlockRate: round6(blocked / calls),
+    target: target ?? null,
+  };
+}
+
+/**
+ * Compute SUQS metrics grouped by app then use case from real decisions: p95
+ * latency, cost per answer, and gate block rate. `targetFor` supplies the
+ * profile SLO target for a use case, or undefined when none is configured (the
+ * row's target is then null). Pure and empty-safe: no decisions yields
+ * `{ byApp: [] }`.
  */
 export function computeSuqs(
   decisions: Decision[],
   targetFor: (useCase: string) => SloTarget | undefined = () => undefined,
 ): SuqsResult {
-  const groups = new Map<string, Decision[]>();
-  for (const d of decisions) {
-    const rows = groups.get(d.useCase) ?? [];
-    rows.push(d);
-    groups.set(d.useCase, rows);
-  }
-
-  const byUseCase: SuqsRow[] = [...groups.entries()]
-    .map(([useCase, rows]) => {
-      const calls = rows.length;
-      const totalCost = rows.reduce((sum, d) => sum + d.costUsd, 0);
-      const blocked = rows.filter((d) => d.gateStatus === "block").length;
-      return {
-        useCase,
-        calls,
-        p95LatencyMs: percentile(rows.map((d) => d.latencyMs), 95),
-        costPerAnswerUsd: round6(totalCost / calls),
-        gateBlockRate: round6(blocked / calls),
-        target: targetFor(useCase) ?? null,
-      };
+  const byApp: SuqsApp[] = [...groupByApp(decisions).entries()]
+    .map(([app, { label, rows }]) => {
+      const byUseCase = new Map<string, Decision[]>();
+      for (const d of rows) {
+        const list = byUseCase.get(d.useCase) ?? [];
+        list.push(d);
+        byUseCase.set(d.useCase, list);
+      }
+      const useCases = [...byUseCase.entries()]
+        .map(([useCase, ucRows]) => suqsRow(useCase, ucRows, targetFor(useCase)))
+        .sort((a, b) => a.useCase.localeCompare(b.useCase));
+      return { app, appLabel: label, useCases };
     })
-    .sort((a, b) => a.useCase.localeCompare(b.useCase));
+    .sort((a, b) => a.app.localeCompare(b.app));
 
-  return { byUseCase };
+  return { byApp };
 }
 
 /** Nearest-rank percentile over a numeric sample. Returns 0 for an empty

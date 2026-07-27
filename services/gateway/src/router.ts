@@ -23,7 +23,7 @@ import {
   handleSuqs,
   handleUsage,
 } from "./handlers";
-import type { GatewayDeps, ParsedRequest, RouteResponse, Tenant } from "./types";
+import type { GatewayDeps, ParsedRequest, Principal, RouteResponse } from "./types";
 
 /** Pull a bearer token out of the Authorization header, or null. */
 export function bearerToken(headers: Record<string, string | undefined>): string | null {
@@ -45,7 +45,7 @@ function methodNotAllowed(): RouteResponse {
   return { status: 405, json: { error: "method_not_allowed" } };
 }
 
-type AuthedHandler = (req: ParsedRequest, deps: GatewayDeps, tenant: Tenant) => Promise<RouteResponse> | RouteResponse;
+type AuthedHandler = (req: ParsedRequest, deps: GatewayDeps, principal: Principal) => Promise<RouteResponse> | RouteResponse;
 
 /** (method, path) -> authed handler for the /v1 surface. */
 const V1_ROUTES: Record<string, Partial<Record<string, AuthedHandler>>> = {
@@ -73,17 +73,17 @@ export async function route(req: ParsedRequest, deps: GatewayDeps): Promise<Rout
   if (path.startsWith("/v1/")) {
     const token = bearerToken(req.headers);
     if (!token) return unauthorized();
-    const tenant = await deps.lookupTenant(token);
-    if (!tenant) return unauthorized();
+    const principal = await deps.lookupTenant(token);
+    if (!principal) return unauthorized();
 
     const byMethod = V1_ROUTES[path];
     if (!byMethod) return notFound();
     const handler = byMethod[method];
     if (!handler) return methodNotAllowed();
 
-    // Stamp the resolved tenant; handlers read this, never the body.
-    const authedReq: ParsedRequest = { ...req, tenant };
-    return handler(authedReq, deps, tenant);
+    // Stamp the resolved tenant and app; handlers read these, never the body.
+    const authedReq: ParsedRequest = { ...req, tenant: principal.tenant, app: principal.app };
+    return handler(authedReq, deps, principal);
   }
 
   return notFound();

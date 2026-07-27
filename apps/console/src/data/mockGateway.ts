@@ -17,8 +17,10 @@ import type {
   FetchLike,
   HttpResponseLike,
   ReportDecisionParams,
+  SuqsApp,
   SuqsResult,
   SuqsRow,
+  UsageApp,
   UsageResult,
   UseCaseProfile,
 } from "@conduit/client";
@@ -27,9 +29,15 @@ import {
   mergeCatalog,
   normalizeOpenRouterModel,
   recommendForUseCase,
-  USE_CASE_PROFILES,
 } from "@conduit/catalog";
-import { MODEL_CONFIG, modelLabel, SAMPLE_PROFILES } from "./sample.ts";
+import {
+  appLabelOf,
+  appOfUseCase,
+  MODEL_CONFIG,
+  modelLabel,
+  SAMPLE_PROFILES,
+  USE_CASE_RECO,
+} from "./sample.ts";
 import { OPENROUTER_SNAPSHOT } from "./openrouterSnapshot.ts";
 
 /** The merged catalog the mock serves: the sample OpenRouter snapshot plus the
@@ -52,6 +60,8 @@ const PROFILE_STORE: UseCaseProfile[] = SAMPLE_PROFILES.map((p) => ({ ...p }));
  * Reported decisions are appended here.
  */
 interface StoredDecision {
+  app: string;
+  appLabel: string;
   useCase: string;
   model: string;
   provider?: string;
@@ -76,18 +86,6 @@ function jsonResponse(body: unknown, status = 200): HttpResponseLike {
   };
 }
 
-/** Aggregate the real (reported) decisions into the usage wire shape. Empty in,
- *  empty out: no records yields `{ totalCostUsd: 0, byUseCase: {} }`. */
-function aggregateUsage(): UsageResult {
-  const byUseCase: Record<string, number> = {};
-  let totalCostUsd = 0;
-  for (const d of DECISION_STORE) {
-    totalCostUsd += d.costUsd;
-    byUseCase[d.useCase] = round6((byUseCase[d.useCase] ?? 0) + d.costUsd);
-  }
-  return { totalCostUsd: round6(totalCostUsd), byUseCase };
-}
-
 function round6(n: number): number {
   return Math.round(n * 1e6) / 1e6;
 }
@@ -100,32 +98,75 @@ function percentile(values: number[], p: number): number {
   return sorted[idx];
 }
 
-/** Compute SUQS metrics from the real decisions, attaching the sample profile
- *  SLO target per use case. Empty when there are no records. */
-function computeSuqs(): SuqsResult {
-  const groups = new Map<string, StoredDecision[]>();
+/** Bucket the reported decisions by app id, keeping a label per app. */
+function groupByApp(): Map<string, { label: string; rows: StoredDecision[] }> {
+  const groups = new Map<string, { label: string; rows: StoredDecision[] }>();
   for (const d of DECISION_STORE) {
-    const rows = groups.get(d.useCase) ?? [];
-    rows.push(d);
-    groups.set(d.useCase, rows);
+    const entry = groups.get(d.app) ?? { label: d.appLabel, rows: [] };
+    entry.rows.push(d);
+    groups.set(d.app, entry);
   }
-  const byUseCase: SuqsRow[] = [...groups.entries()]
-    .map(([useCase, rows]) => {
-      const calls = rows.length;
-      const totalCost = rows.reduce((sum, d) => sum + d.costUsd, 0);
-      const blocked = rows.filter((d) => d.gateStatus === "block").length;
-      const slo = PROFILE_STORE.find((p) => p.id === useCase)?.slo;
-      return {
-        useCase,
-        calls,
-        p95LatencyMs: percentile(rows.map((d) => d.latencyMs), 95),
-        costPerAnswerUsd: round6(totalCost / calls),
-        gateBlockRate: round6(blocked / calls),
-        target: slo ?? null,
-      };
+  return groups;
+}
+
+/** Aggregate the real (reported) decisions into the usage wire shape, grouped
+ *  by app then use case. Empty in, empty out: no records yields
+ *  `{ totalCostUsd: 0, byApp: [] }`. */
+function aggregateUsage(): UsageResult {
+  let totalCostUsd = 0;
+  for (const d of DECISION_STORE) totalCostUsd += d.costUsd;
+
+  const byApp: UsageApp[] = [...groupByApp().entries()]
+    .map(([app, { label, rows }]) => {
+      const byUseCase = new Map<string, number>();
+      let appTotal = 0;
+      for (const d of rows) {
+        appTotal += d.costUsd;
+        byUseCase.set(d.useCase, round6((byUseCase.get(d.useCase) ?? 0) + d.costUsd));
+      }
+      const useCases = [...byUseCase.entries()]
+        .map(([useCase, costUsd]) => ({ useCase, costUsd }))
+        .sort((a, b) => a.useCase.localeCompare(b.useCase));
+      return { app, appLabel: label, totalCostUsd: round6(appTotal), useCases };
     })
-    .sort((a, b) => a.useCase.localeCompare(b.useCase));
-  return { byUseCase };
+    .sort((a, b) => a.app.localeCompare(b.app));
+
+  return { totalCostUsd: round6(totalCostUsd), byApp };
+}
+
+/** Compute SUQS metrics from the real decisions grouped by app then use case,
+ *  attaching the sample profile SLO target per use case. Empty when there are
+ *  no records. */
+function computeSuqs(): SuqsResult {
+  const byApp: SuqsApp[] = [...groupByApp().entries()]
+    .map(([app, { label, rows }]) => {
+      const byUseCase = new Map<string, StoredDecision[]>();
+      for (const d of rows) {
+        const list = byUseCase.get(d.useCase) ?? [];
+        list.push(d);
+        byUseCase.set(d.useCase, list);
+      }
+      const useCases: SuqsRow[] = [...byUseCase.entries()]
+        .map(([useCase, ucRows]) => {
+          const calls = ucRows.length;
+          const totalCost = ucRows.reduce((sum, d) => sum + d.costUsd, 0);
+          const blocked = ucRows.filter((d) => d.gateStatus === "block").length;
+          const slo = PROFILE_STORE.find((p) => p.id === useCase)?.slo;
+          return {
+            useCase,
+            calls,
+            p95LatencyMs: percentile(ucRows.map((d) => d.latencyMs), 95),
+            costPerAnswerUsd: round6(totalCost / calls),
+            gateBlockRate: round6(blocked / calls),
+            target: slo ?? null,
+          };
+        })
+        .sort((a, b) => a.useCase.localeCompare(b.useCase));
+      return { app, appLabel: label, useCases };
+    })
+    .sort((a, b) => a.app.localeCompare(b.app));
+
+  return { byApp };
 }
 
 /**
@@ -149,7 +190,13 @@ export const mockGatewayFetch: FetchLike = async (url, init) => {
     if (!body || typeof body.useCase !== "string" || typeof body.model !== "string") {
       return jsonResponse({ error: "invalid decision" }, 400);
     }
+    // The app is derived here from the use case, mirroring how the real gateway
+    // derives it from the caller's token rather than from the request body: a
+    // client-supplied app would be ignored either way.
+    const app = appOfUseCase(body.useCase);
     DECISION_STORE.push({
+      app,
+      appLabel: appLabelOf(app),
       useCase: body.useCase,
       model: body.model,
       provider: body.provider,
@@ -165,7 +212,7 @@ export const mockGatewayFetch: FetchLike = async (url, init) => {
     const query = url.split("?")[1] ?? "";
     const useCase = new URLSearchParams(query).get("useCase");
     if (!useCase) return jsonResponse({ models: MOCK_CATALOG });
-    const profile = USE_CASE_PROFILES[useCase];
+    const profile = USE_CASE_RECO[useCase];
     const recommended = profile ? recommendForUseCase(MOCK_CATALOG, profile) : [];
     return jsonResponse({ models: MOCK_CATALOG, recommended });
   }
@@ -193,7 +240,7 @@ export const mockGatewayFetch: FetchLike = async (url, init) => {
 
   if (method === "POST" && path === "/v1/infer") {
     const body = init?.body ? (JSON.parse(init.body) as { useCase?: string; pinModel?: { provider: string; model: string } }) : {};
-    const useCase = body.useCase ?? "support-triage";
+    const useCase = body.useCase ?? "penny_categorize";
     const cfg = MODEL_CONFIG.find((c) => c.useCaseId === useCase);
     const ref = body.pinModel
       ? `${body.pinModel.provider}/${body.pinModel.model}`

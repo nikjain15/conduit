@@ -1,15 +1,15 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { RETRIEVER_NAMES } from "@conduit/profile";
 import type { UseCaseProfile } from "@conduit/client";
 import { client } from "../data/client.ts";
-import { SAMPLE_NOTICE } from "../data/sample.ts";
+import { appOfUseCase, SAMPLE_NOTICE } from "../data/sample.ts";
 import { useProfiles } from "./useProfiles.ts";
+import { AppHeading, groupByApp, UseCaseTag } from "./AppGroup.tsx";
 
 type Retrieval = NonNullable<UseCaseProfile["retrieval"]>;
 
 /** Source options: the retriever registry names, plus any source a loaded
- *  profile already names that is not a registered retriever, so an existing
- *  config never renders with an empty selection. */
+ *  profile already names that is not a registered retriever. */
 function sourceOptions(profiles: UseCaseProfile[]): string[] {
   const names = new Set<string>(RETRIEVER_NAMES);
   for (const p of profiles) if (p.retrieval?.source) names.add(p.retrieval.source);
@@ -35,58 +35,162 @@ function parseNum(raw: string): number | undefined {
   return Number.isFinite(n) ? n : undefined;
 }
 
-export function Retrieval() {
-  const { profiles, status } = useProfiles();
-  const [draft, setDraft] = useState<UseCaseProfile[]>([]);
-  const [activeId, setActiveId] = useState<string>("");
+interface CardProps {
+  profile: UseCaseProfile;
+  sources: string[];
+}
+
+/** One use case's retrieval editor. Self-contained: owns its draft and save. */
+function RetrievalCard({ profile, sources }: CardProps) {
+  const [draft, setDraft] = useState<UseCaseProfile>(profile);
   const [saveState, setSaveState] = useState<string>("");
+  const app = appOfUseCase(profile.id);
 
-  // Take a working copy once profiles load, so edits are local until saved.
-  useEffect(() => {
-    if (status === "ready" && profiles.length > 0) {
-      setDraft(
-        profiles.map((p) => ({
-          ...p,
-          retrieval: p.retrieval ? { ...p.retrieval, chunking: p.retrieval.chunking ? { ...p.retrieval.chunking } : undefined } : p.retrieval,
-        })),
-      );
-      setActiveId((prev) => prev || profiles[0].id);
-    }
-  }, [status, profiles]);
+  const retrieval = draft.retrieval;
+  const enabled = !!retrieval;
 
-  const sources = sourceOptions(profiles);
-  const active = draft.find((p) => p.id === activeId);
-
-  function editRetrieval(mutate: (r: Retrieval) => Retrieval | null) {
-    setDraft((prev) =>
-      prev.map((p) => {
-        if (p.id !== activeId) return p;
-        const current = p.retrieval ?? defaultRetrieval();
-        return { ...p, retrieval: mutate(current) };
-      }),
-    );
+  function editRetrieval(mutate: (r: Retrieval) => Retrieval) {
+    setDraft((p) => ({ ...p, retrieval: mutate(p.retrieval ?? defaultRetrieval()) }));
     setSaveState("");
   }
 
-  function setEnabled(enabled: boolean) {
-    setDraft((prev) =>
-      prev.map((p) =>
-        p.id === activeId ? { ...p, retrieval: enabled ? p.retrieval ?? defaultRetrieval() : null } : p,
-      ),
-    );
+  function setEnabled(on: boolean) {
+    setDraft((p) => ({ ...p, retrieval: on ? p.retrieval ?? defaultRetrieval() : null }));
     setSaveState("");
   }
 
   async function save() {
-    if (!active || !client.updateProfile) return;
+    if (!client.updateProfile) return;
     setSaveState("Saving.");
     try {
-      await client.updateProfile(active);
+      await client.updateProfile(draft);
       setSaveState("Saved. Edits round-trip through the gateway.");
     } catch {
       setSaveState("Save failed.");
     }
   }
+
+  return (
+    <div className="card">
+      <UseCaseTag app={app} useCase={profile.name} />
+      <div className="field">
+        <label htmlFor={`retrieval-enabled-${profile.id}`}>
+          <input
+            id={`retrieval-enabled-${profile.id}`}
+            type="checkbox"
+            aria-label={`Enable retrieval ${profile.id}`}
+            checked={enabled}
+            onChange={(e) => setEnabled(e.target.checked)}
+          />{" "}
+          Ground this use case with retrieval
+        </label>
+      </div>
+
+      {!enabled && (
+        <p className="muted" style={{ fontSize: 13 }}>
+          Retrieval is disabled for this use case. It answers from the model alone, with no grounding
+          corpus. Enable retrieval to configure a retriever.
+        </p>
+      )}
+
+      {enabled && retrieval && (
+        <div className="grid cols-2">
+          <div className="field">
+            <label htmlFor={`retrieval-source-${profile.id}`}>Source</label>
+            <select
+              id={`retrieval-source-${profile.id}`}
+              aria-label={`Retriever source ${profile.id}`}
+              value={retrieval.source}
+              onChange={(e) => editRetrieval((r) => ({ ...r, source: e.target.value }))}
+            >
+              {sources.map((s) => (
+                <option key={s} value={s}>{s}</option>
+              ))}
+            </select>
+          </div>
+
+          <div className="field">
+            <label htmlFor={`retrieval-topk-${profile.id}`}>Top K</label>
+            <input
+              id={`retrieval-topk-${profile.id}`}
+              type="number"
+              aria-label={`Top K ${profile.id}`}
+              value={retrieval.topK ?? ""}
+              onChange={(e) => editRetrieval((r) => ({ ...r, topK: parseNum(e.target.value) }))}
+            />
+          </div>
+
+          <div className="field">
+            <label htmlFor={`retrieval-chunk-size-${profile.id}`}>Chunk size</label>
+            <input
+              id={`retrieval-chunk-size-${profile.id}`}
+              type="number"
+              aria-label={`Chunk size ${profile.id}`}
+              value={retrieval.chunking?.size ?? ""}
+              onChange={(e) =>
+                editRetrieval((r) => ({
+                  ...r,
+                  chunking: { size: parseNum(e.target.value) ?? 0, overlap: r.chunking?.overlap ?? 0 },
+                }))
+              }
+            />
+          </div>
+
+          <div className="field">
+            <label htmlFor={`retrieval-chunk-overlap-${profile.id}`}>Chunk overlap</label>
+            <input
+              id={`retrieval-chunk-overlap-${profile.id}`}
+              type="number"
+              aria-label={`Chunk overlap ${profile.id}`}
+              value={retrieval.chunking?.overlap ?? ""}
+              onChange={(e) =>
+                editRetrieval((r) => ({
+                  ...r,
+                  chunking: { size: r.chunking?.size ?? 0, overlap: parseNum(e.target.value) ?? 0 },
+                }))
+              }
+            />
+          </div>
+
+          <div className="field">
+            <label htmlFor={`retrieval-embed-${profile.id}`}>Embed model</label>
+            <input
+              id={`retrieval-embed-${profile.id}`}
+              type="text"
+              aria-label={`Embed model ${profile.id}`}
+              value={retrieval.embedModel ?? ""}
+              onChange={(e) =>
+                editRetrieval((r) => ({ ...r, embedModel: e.target.value === "" ? undefined : e.target.value }))
+              }
+            />
+          </div>
+
+          <div className="field">
+            <label htmlFor={`retrieval-threshold-${profile.id}`}>Grounding threshold</label>
+            <input
+              id={`retrieval-threshold-${profile.id}`}
+              type="number"
+              step="0.01"
+              aria-label={`Grounding threshold ${profile.id}`}
+              value={retrieval.groundingThreshold ?? ""}
+              onChange={(e) => editRetrieval((r) => ({ ...r, groundingThreshold: parseNum(e.target.value) }))}
+            />
+          </div>
+        </div>
+      )}
+
+      <div className="actions">
+        <button type="button" className="link-action" aria-label={`Save ${profile.id}`} onClick={() => void save()}>
+          Save changes
+        </button>
+        {saveState && <span className="action-result">{saveState}</span>}
+      </div>
+    </div>
+  );
+}
+
+export function Retrieval() {
+  const { profiles, status } = useProfiles();
 
   if (status === "loading") {
     return (
@@ -96,8 +200,7 @@ export function Retrieval() {
       </section>
     );
   }
-
-  if (status === "error" || !active) {
+  if (status === "error" || profiles.length === 0) {
     return (
       <section className="page">
         <h2>Retrieval</h2>
@@ -106,151 +209,27 @@ export function Retrieval() {
     );
   }
 
-  const retrieval = active.retrieval;
-  const enabled = !!retrieval;
+  const sources = sourceOptions(profiles);
+  const groups = groupByApp(profiles, (p) => p.id);
 
   return (
     <section className="page">
       <h2>Retrieval</h2>
       <p className="lead">
-        Grounded retrieval per use case, driven by the retriever registry. Pick a retriever, size the
-        chunks, and set the grounding threshold below which the answer is refused as not found rather
-        than invented.
+        Grounded retrieval per use case, grouped by app and driven by the retriever registry. Pick a
+        retriever, size the chunks, and set the grounding threshold below which the answer is refused as
+        not found rather than invented.
       </p>
       <span className="notice">{SAMPLE_NOTICE}</span>
 
-      <div className="field" style={{ maxWidth: 360 }}>
-        <label htmlFor="retrieval-usecase">Use case</label>
-        <select
-          id="retrieval-usecase"
-          value={activeId}
-          onChange={(e) => {
-            setActiveId(e.target.value);
-            setSaveState("");
-          }}
-        >
-          {draft.map((p) => (
-            <option key={p.id} value={p.id}>{p.name}</option>
+      {groups.map((g) => (
+        <div className="app-group" key={g.app}>
+          <AppHeading label={g.label} count={g.items.length} />
+          {g.items.map((p) => (
+            <RetrievalCard key={p.id} profile={p} sources={sources} />
           ))}
-        </select>
-      </div>
-
-      <div className="card">
-        <div className="field">
-          <label htmlFor="retrieval-enabled">
-            <input
-              id="retrieval-enabled"
-              type="checkbox"
-              aria-label="Enable retrieval"
-              checked={enabled}
-              onChange={(e) => setEnabled(e.target.checked)}
-            />{" "}
-            Ground this use case with retrieval
-          </label>
         </div>
-
-        {!enabled && (
-          <p className="muted" style={{ fontSize: 13 }}>
-            Retrieval is disabled for this use case. It answers from the model alone, with no grounding
-            corpus. Enable retrieval to configure a retriever.
-          </p>
-        )}
-
-        {enabled && retrieval && (
-          <div className="grid cols-2">
-            <div className="field">
-              <label htmlFor="retrieval-source">Source</label>
-              <select
-                id="retrieval-source"
-                aria-label="Retriever source"
-                value={retrieval.source}
-                onChange={(e) => editRetrieval((r) => ({ ...r, source: e.target.value }))}
-              >
-                {sources.map((s) => (
-                  <option key={s} value={s}>{s}</option>
-                ))}
-              </select>
-            </div>
-
-            <div className="field">
-              <label htmlFor="retrieval-topk">Top K</label>
-              <input
-                id="retrieval-topk"
-                type="number"
-                aria-label="Top K"
-                value={retrieval.topK ?? ""}
-                onChange={(e) => editRetrieval((r) => ({ ...r, topK: parseNum(e.target.value) }))}
-              />
-            </div>
-
-            <div className="field">
-              <label htmlFor="retrieval-chunk-size">Chunk size</label>
-              <input
-                id="retrieval-chunk-size"
-                type="number"
-                aria-label="Chunk size"
-                value={retrieval.chunking?.size ?? ""}
-                onChange={(e) =>
-                  editRetrieval((r) => ({
-                    ...r,
-                    chunking: { size: parseNum(e.target.value) ?? 0, overlap: r.chunking?.overlap ?? 0 },
-                  }))
-                }
-              />
-            </div>
-
-            <div className="field">
-              <label htmlFor="retrieval-chunk-overlap">Chunk overlap</label>
-              <input
-                id="retrieval-chunk-overlap"
-                type="number"
-                aria-label="Chunk overlap"
-                value={retrieval.chunking?.overlap ?? ""}
-                onChange={(e) =>
-                  editRetrieval((r) => ({
-                    ...r,
-                    chunking: { size: r.chunking?.size ?? 0, overlap: parseNum(e.target.value) ?? 0 },
-                  }))
-                }
-              />
-            </div>
-
-            <div className="field">
-              <label htmlFor="retrieval-embed">Embed model</label>
-              <input
-                id="retrieval-embed"
-                type="text"
-                aria-label="Embed model"
-                value={retrieval.embedModel ?? ""}
-                onChange={(e) =>
-                  editRetrieval((r) => ({ ...r, embedModel: e.target.value === "" ? undefined : e.target.value }))
-                }
-              />
-            </div>
-
-            <div className="field">
-              <label htmlFor="retrieval-threshold">Grounding threshold</label>
-              <input
-                id="retrieval-threshold"
-                type="number"
-                step="0.01"
-                aria-label="Grounding threshold"
-                value={retrieval.groundingThreshold ?? ""}
-                onChange={(e) =>
-                  editRetrieval((r) => ({ ...r, groundingThreshold: parseNum(e.target.value) }))
-                }
-              />
-            </div>
-          </div>
-        )}
-      </div>
-
-      <div className="actions">
-        <button type="button" className="link-action" onClick={() => void save()}>
-          Save changes
-        </button>
-        {saveState && <span className="action-result">{saveState}</span>}
-      </div>
+      ))}
     </section>
   );
 }

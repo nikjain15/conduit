@@ -21,6 +21,14 @@ export interface ModelRef {
   model: string;
 }
 
+/** An app: the product a use case belongs to. The gateway derives the calling
+ *  app from the bearer token and groups usage and suqs by it. `label` is the
+ *  human name shown in the console. */
+export interface App {
+  id: string;
+  label: string;
+}
+
 /* ── Method params (identical in both modes) ──────────────────────────────── */
 
 export interface InferParams {
@@ -112,9 +120,28 @@ export interface EvaluateResult {
   metrics: Record<string, number>;
 }
 
+/** One use case's summed cost inside an app's usage rollup. */
+export interface UsageUseCase {
+  useCase: string;
+  costUsd: number;
+}
+
+/** One app's usage rollup: its total spend and per-use-case breakdown. */
+export interface UsageApp {
+  app: string;
+  appLabel: string;
+  totalCostUsd: number;
+  useCases: UsageUseCase[];
+}
+
+/**
+ * Usage rollup grouped by app then use case. `totalCostUsd` is the tenant-wide
+ * total; `byApp` has one entry per app with metered decisions. Empty when the
+ * tenant has no records (`{ totalCostUsd: 0, byApp: [] }`), never fabricated.
+ */
 export interface UsageResult {
   totalCostUsd: number;
-  byUseCase: Record<string, number>;
+  byApp: UsageApp[];
 }
 
 /** A profile SLO target the SUQS view compares a measured value against. */
@@ -137,9 +164,17 @@ export interface SuqsRow {
   target: SloTarget | null;
 }
 
-/** GET /v1/suqs result. `byUseCase` is empty when the tenant has no records. */
+/** One app's SUQS rollup: its use case rows grouped under the app. */
+export interface SuqsApp {
+  app: string;
+  appLabel: string;
+  useCases: SuqsRow[];
+}
+
+/** GET /v1/suqs result, grouped by app then use case. `byApp` is empty when the
+ *  tenant has no records. */
 export interface SuqsResult {
-  byUseCase: SuqsRow[];
+  byApp: SuqsApp[];
 }
 
 /** One routable model in the gateway's normalized catalog shape. Kept local so

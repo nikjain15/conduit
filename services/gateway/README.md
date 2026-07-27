@@ -14,21 +14,21 @@ The service is split into pure logic and a thin port binding.
 
 ### Auth and tenant isolation
 
-Every `/v1/*` route requires `Authorization: Bearer <apiKey>`. The key is resolved to a tenant through the injected `lookupTenant(apiKey)`. A missing or unknown key returns 401. The tenant is derived only from the key and stamped onto the request; a client-supplied `tenant` field in the body is never consulted. Handlers pass the resolved tenant to the cores, so a caller can only ever act as its own tenant.
+Every `/v1/*` route requires `Authorization: Bearer <apiKey>`. The key is resolved to a principal `{ tenant, app }` through the injected `lookupTenant(apiKey)`. A missing or unknown key returns 401. Both the tenant and the app are derived only from the key and stamped onto the request; a client-supplied `tenant` or `app` field in the body is never consulted. Handlers pass the resolved tenant to the cores and stamp the app onto every metered decision, so a caller can only ever act as its own tenant and report under its own app.
 
 ### Metering and the decision store
 
 The metering seam is the `DecisionStore` interface: `append(record)` writes one metered decision, `query(tenant, { since?, until?, useCase? })` reads a tenant's decisions back. The gateway appends a decision on every `/v1/infer` call and on every `POST /v1/decisions` report. Both `/v1/usage` and `/v1/suqs` are built by querying the store, scoped to the calling tenant.
 
-A metered decision is `{ tenant, useCase, model, provider?, costUsd, latencyMs, tokensIn?, tokensOut?, gateStatus?, at }`. The tenant is always stamped from the resolved API key; a client-supplied tenant field is ignored.
+A metered decision is `{ tenant, app, appLabel?, useCase, model, provider?, costUsd, latencyMs, tokensIn?, tokensOut?, gateStatus?, at }`. The tenant and app are always stamped from the resolved API key; a client-supplied tenant or app field is ignored. Because `app` rides on every record, `/v1/usage` and `/v1/suqs` group their results by app then use case.
 
 The default `InMemoryDecisionStore` buckets decisions per tenant so a query for one tenant never scans another's rows. It is the seam where a durable database drops in: implement the same interface with `append` as an INSERT and `query` as a tenant-scoped SELECT filtered on `at` and `useCase`. A schema such as `decisions(tenant, use_case, model, provider, cost_usd, latency_ms, tokens_in, tokens_out, gate_status, at)` indexed on `(tenant, at)` and `(tenant, use_case)` serves both endpoints. No database dependency is added now; the interface is the only contract the handlers depend on.
 
-Every figure the endpoints return is derived from real recorded decisions. With no decisions, `/v1/usage` returns `{ totalCostUsd: 0, byUseCase: {} }` and `/v1/suqs` returns `{ byUseCase: [] }`. Neither ever fabricates a number.
+Every figure the endpoints return is derived from real recorded decisions. With no decisions, `/v1/usage` returns `{ totalCostUsd: 0, byApp: [] }` and `/v1/suqs` returns `{ byApp: [] }`. Neither ever fabricates a number. `/v1/usage` groups spend by app then use case: `{ totalCostUsd, byApp: [{ app, appLabel, totalCostUsd, useCases: [{ useCase, costUsd }] }] }`.
 
 ### SUQS
 
-`GET /v1/suqs?window=` computes, per use case, from real decisions: p95 latency (nearest-rank), cost per answer (mean cost), and gate block rate (share of decisions with `gateStatus: "block"`). When a `sloTargets(tenant, useCase)` lookup is injected, each row carries the profile SLO target it should be read against; otherwise the target is null. It never invents a target.
+`GET /v1/suqs?window=` groups by app then use case and computes, per use case, from real decisions: p95 latency (nearest-rank), cost per answer (mean cost), and gate block rate (share of decisions with `gateStatus: "block"`). The shape is `{ byApp: [{ app, appLabel, useCases: [{ useCase, calls, p95LatencyMs, costPerAnswerUsd, gateBlockRate, target }] }] }`. When a `sloTargets(tenant, useCase)` lookup is injected, each row carries the profile SLO target it should be read against; otherwise the target is null. It never invents a target.
 
 ## Endpoints
 
@@ -40,8 +40,8 @@ Every figure the endpoints return is derived from real recorded decisions. With 
 | POST | `/v1/agent` | bearer | `{ goal, maxSteps? }` | `{ answer, steps }` |
 | POST | `/v1/evals/run` | bearer | `{ datasetId }` | `{ summary, metrics }` |
 | POST | `/v1/decisions` | bearer | `{ useCase, model, costUsd, latencyMs, provider?, tokensIn?, tokensOut?, gateStatus?, at? }` | `{ accepted, tenant }` |
-| GET | `/v1/usage` | bearer | `?window=` | `{ totalCostUsd, byUseCase }` |
-| GET | `/v1/suqs` | bearer | `?window=` | `{ byUseCase }` |
+| GET | `/v1/usage` | bearer | `?window=` | `{ totalCostUsd, byApp }` |
+| GET | `/v1/suqs` | bearer | `?window=` | `{ byApp }` |
 | GET | `/sse` | bearer | | MCP event stream |
 | POST | `/messages` | bearer | `?sessionId=` | MCP message ack |
 

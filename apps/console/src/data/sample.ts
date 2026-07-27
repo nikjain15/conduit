@@ -4,9 +4,17 @@
  * Every value here is placeholder configuration for demonstration. It is not a
  * measurement of any real system. Pages that render these figures label them as
  * sample so a reader never mistakes them for live production metrics.
+ *
+ * The fleet is organized by app: every use case belongs to one product, so the
+ * console can group its tabs by app (FounderFirst, RoleOS, Pulse, Rally) and
+ * read a row as "FounderFirst / penny_categorize" rather than an anonymous
+ * label. In production the app a caller belongs to is derived from the bearer
+ * token, never the request body; here it is declared statically on each use
+ * case so the offline console can render the same grouping.
  */
 
 import type { UseCaseProfile } from "@conduit/client";
+import type { UseCaseProfile as CatalogUseCaseProfile } from "@conduit/catalog";
 
 export const SAMPLE_NOTICE =
   "Sample configuration. Values are placeholders for demonstration, not live production metrics.";
@@ -50,46 +58,164 @@ export function modelLabel(ref: string): string {
   return MODEL_CATALOG.find((m) => m.ref === ref)?.label ?? ref;
 }
 
+/* ── The app fleet ────────────────────────────────────────────────────────── */
+
+export interface AppInfo {
+  id: string;
+  label: string;
+}
+
+/** The real apps, in the order the console groups them. */
+export const APPS: AppInfo[] = [
+  { id: "founderfirst", label: "FounderFirst" },
+  { id: "roleos", label: "RoleOS" },
+  { id: "pulse", label: "Pulse" },
+  { id: "rally", label: "Rally" },
+];
+
+export function appLabelOf(appId: string): string {
+  return APPS.find((a) => a.id === appId)?.label ?? appId;
+}
+
 export interface UseCase {
   id: string;
+  /** The app this use case belongs to. */
+  app: string;
+  /** The app's display label, denormalized for convenient rendering. */
+  appLabel: string;
   name: string;
   summary: string;
   /** Customer facing or financial use cases may not reuse cached answers. */
   cachingAllowed: boolean;
 }
 
+/**
+ * The real per-app use case fleet. Every card and row in the console reads from
+ * this: the `app`/`appLabel` fields are what let each tab group by app and show
+ * "app / useCase" on each card.
+ */
 export const USE_CASES: UseCase[] = [
+  // FounderFirst
   {
-    id: "support-triage",
-    name: "Support triage",
-    summary: "Classify and route inbound support tickets by intent and urgency.",
+    id: "penny_categorize",
+    app: "founderfirst",
+    appLabel: "FounderFirst",
+    name: "penny_categorize",
+    summary: "Categorize each ledger transaction into an expense category for founder bookkeeping.",
     cachingAllowed: true,
   },
   {
-    id: "kb-search",
-    name: "Knowledge search",
-    summary: "Grounded answers over the internal knowledge base with citations.",
-    cachingAllowed: true,
-  },
-  {
-    id: "sales-draft",
-    name: "Sales email drafting",
-    summary: "Draft outreach and follow up copy for the sales team to edit.",
-    cachingAllowed: true,
-  },
-  {
-    id: "billing-summary",
-    name: "Billing summary",
-    summary: "Explain a customer invoice in plain language inside the account view.",
+    id: "penny_insights",
+    app: "founderfirst",
+    appLabel: "FounderFirst",
+    name: "penny_insights",
+    summary: "Summarize spend patterns and surface saving opportunities grounded in the founder's ledger.",
     cachingAllowed: false,
   },
+  // RoleOS
   {
-    id: "code-review",
-    name: "Code review assistant",
-    summary: "Surface risky diffs and suggest fixes on internal pull requests.",
+    id: "match",
+    app: "roleos",
+    appLabel: "RoleOS",
+    name: "match",
+    summary: "Match candidates to open roles from the talent pool with grounded evidence.",
+    cachingAllowed: true,
+  },
+  {
+    id: "screen",
+    app: "roleos",
+    appLabel: "RoleOS",
+    name: "screen",
+    summary: "Screen inbound applicants against role requirements and rank them.",
+    cachingAllowed: true,
+  },
+  {
+    id: "build",
+    app: "roleos",
+    appLabel: "RoleOS",
+    name: "build",
+    summary: "Draft job descriptions and interview kits from a role brief.",
+    cachingAllowed: true,
+  },
+  {
+    id: "coach",
+    app: "roleos",
+    appLabel: "RoleOS",
+    name: "coach",
+    summary: "Coach hiring managers through interviews with structured, cited guidance.",
+    cachingAllowed: true,
+  },
+  {
+    id: "negotiate",
+    app: "roleos",
+    appLabel: "RoleOS",
+    name: "negotiate",
+    summary: "Guide offer negotiation against compensation bands and company policy.",
+    cachingAllowed: false,
+  },
+  // Pulse
+  {
+    id: "ask-pulse",
+    app: "pulse",
+    appLabel: "Pulse",
+    name: "ask-pulse",
+    summary: "Answer questions over employee engagement survey results with citations.",
+    cachingAllowed: true,
+  },
+  // Rally
+  {
+    id: "ask",
+    app: "rally",
+    appLabel: "Rally",
+    name: "ask",
+    summary: "Answer community and support questions grounded in the help center.",
+    cachingAllowed: true,
+  },
+  {
+    id: "detect",
+    app: "rally",
+    appLabel: "Rally",
+    name: "detect",
+    summary: "Detect spam, abuse, and policy violations in community posts.",
     cachingAllowed: true,
   },
 ];
+
+export function useCaseName(id: string): string {
+  return USE_CASES.find((u) => u.id === id)?.name ?? id;
+}
+
+/** The app a use case belongs to, or "" when the id is unknown. */
+export function appOfUseCase(id: string): string {
+  return USE_CASES.find((u) => u.id === id)?.app ?? "";
+}
+
+/** Group the fleet by app, in APPS order, for the grouped tab layout. */
+export function useCasesByApp(): Array<{ app: AppInfo; useCases: UseCase[] }> {
+  return APPS.map((app) => ({
+    app,
+    useCases: USE_CASES.filter((u) => u.app === app.id),
+  })).filter((g) => g.useCases.length > 0);
+}
+
+/**
+ * Catalog recommendation profiles per use case, keyed by use case id. These
+ * drive the per-use-case model recommendations the mock (and the real gateway)
+ * surface on the Models tab. Kept in the console because the fleet is
+ * app-specific; the shape matches @conduit/catalog's UseCaseProfile.
+ */
+export const USE_CASE_RECO: Record<string, CatalogUseCaseProfile> = {
+  penny_categorize: { task: "bulk", costSensitivity: "high" },
+  penny_insights: { task: "grounded", costSensitivity: "low", needsLongContext: true },
+  match: { task: "grounded", costSensitivity: "low", needsLongContext: true },
+  screen: { task: "bulk", costSensitivity: "high" },
+  build: { task: "draft", costSensitivity: "high" },
+  coach: { task: "draft", costSensitivity: "low", needsTools: true },
+  negotiate: { task: "financial", costSensitivity: "low", needsTools: true },
+  "ask-pulse": { task: "grounded", costSensitivity: "low", needsLongContext: true },
+  ask: { task: "grounded", costSensitivity: "low", needsLongContext: true },
+  detect: { task: "bulk", costSensitivity: "high" },
+};
 
 export interface ModelConfig {
   useCaseId: string;
@@ -101,40 +227,75 @@ export interface ModelConfig {
 
 export const MODEL_CONFIG: ModelConfig[] = [
   {
-    // Bulk classify: cheap open weights near the edge, escalate to a managed tier on cap.
-    useCaseId: "support-triage",
+    // Bulk categorize: cheap open weights near the edge, escalate to a managed tier on cap.
+    useCaseId: "penny_categorize",
+    mainModel: "workers-ai/@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+    backupModel: "anthropic/claude-haiku-4-5",
+    monthlyCapUsd: 800,
+    reuseCachedAnswers: true,
+  },
+  {
+    // Grounded financial insight: a frontier managed tier, no cached reuse.
+    useCaseId: "penny_insights",
+    mainModel: "anthropic/claude-sonnet-5",
+    backupModel: "anthropic/claude-opus-4-8",
+    monthlyCapUsd: 1500,
+    reuseCachedAnswers: false,
+  },
+  {
+    useCaseId: "match",
+    mainModel: "openrouter/meta-llama/llama-3.3-70b-instruct",
+    backupModel: "anthropic/claude-sonnet-5",
+    monthlyCapUsd: 1800,
+    reuseCachedAnswers: true,
+  },
+  {
+    useCaseId: "screen",
     mainModel: "workers-ai/@cf/meta/llama-3.3-70b-instruct-fp8-fast",
     backupModel: "anthropic/claude-haiku-4-5",
     monthlyCapUsd: 1200,
     reuseCachedAnswers: true,
   },
   {
-    // Grounded retrieval: an open 70B via OpenRouter for bulk, frontier Claude for hard queries.
-    useCaseId: "kb-search",
-    mainModel: "openrouter/meta-llama/llama-3.3-70b-instruct",
-    backupModel: "anthropic/claude-sonnet-5",
-    monthlyCapUsd: 2500,
+    useCaseId: "build",
+    mainModel: "openrouter/mistralai/mistral-large",
+    backupModel: "anthropic/claude-haiku-4-5",
+    monthlyCapUsd: 700,
     reuseCachedAnswers: true,
   },
   {
-    useCaseId: "sales-draft",
-    mainModel: "openrouter/mistralai/mistral-large",
-    backupModel: "anthropic/claude-haiku-4-5",
+    useCaseId: "coach",
+    mainModel: "anthropic/claude-sonnet-5",
+    backupModel: "anthropic/claude-opus-4-8",
+    monthlyCapUsd: 1600,
+    reuseCachedAnswers: true,
+  },
+  {
+    useCaseId: "negotiate",
+    mainModel: "anthropic/claude-opus-4-8",
+    backupModel: "anthropic/claude-sonnet-5",
     monthlyCapUsd: 900,
     reuseCachedAnswers: false,
   },
   {
-    useCaseId: "billing-summary",
-    mainModel: "anthropic/claude-opus-4-8",
+    useCaseId: "ask-pulse",
+    mainModel: "openrouter/meta-llama/llama-3.3-70b-instruct",
     backupModel: "anthropic/claude-sonnet-5",
-    monthlyCapUsd: 1500,
-    reuseCachedAnswers: false,
+    monthlyCapUsd: 1000,
+    reuseCachedAnswers: true,
   },
   {
-    useCaseId: "code-review",
-    mainModel: "anthropic/claude-opus-5",
-    backupModel: "anthropic/claude-opus-4-8",
+    useCaseId: "ask",
+    mainModel: "openrouter/qwen/qwen-2.5-72b-instruct",
+    backupModel: "anthropic/claude-sonnet-5",
     monthlyCapUsd: 2000,
+    reuseCachedAnswers: true,
+  },
+  {
+    useCaseId: "detect",
+    mainModel: "workers-ai/@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+    backupModel: "anthropic/claude-haiku-4-5",
+    monthlyCapUsd: 1400,
     reuseCachedAnswers: true,
   },
 ];
@@ -142,8 +303,7 @@ export const MODEL_CONFIG: ModelConfig[] = [
 export interface EvalGate {
   id: string;
   label: string;
-  metric: string;
-  threshold: string;
+  method: string;
   kind: "inline" | "batch";
 }
 
@@ -152,40 +312,79 @@ export interface EvalSetup {
   gates: EvalGate[];
 }
 
+/** Per-use-case eval gates. `method` names a check in the shared @conduit/evals
+ *  registry so the console editor shows a real registry method. */
 export const EVAL_SETUP: EvalSetup[] = [
   {
-    useCaseId: "support-triage",
+    useCaseId: "penny_categorize",
     gates: [
-      { id: "intent-acc", label: "Intent accuracy", metric: "labelled set match rate", threshold: "at or above 0.90", kind: "batch" },
-      { id: "pii-block", label: "PII leak check", metric: "flagged responses", threshold: "0 allowed", kind: "inline" },
+      { id: "category-acc", label: "Category accuracy", method: "exact_match", kind: "batch" },
+      { id: "pii-block", label: "PII leak check", method: "pii_scan", kind: "inline" },
     ],
   },
   {
-    useCaseId: "kb-search",
+    useCaseId: "penny_insights",
     gates: [
-      { id: "grounding", label: "Grounding", metric: "answers with a valid citation", threshold: "at or above 0.95", kind: "inline" },
-      { id: "faithful", label: "Faithfulness", metric: "judge panel agreement", threshold: "at or above 0.85", kind: "batch" },
+      { id: "numeric-fidelity", label: "Numeric fidelity", method: "numeric_match", kind: "inline" },
+      { id: "no-advice", label: "No financial advice", method: "regex", kind: "inline" },
+      { id: "usefulness", label: "Insight usefulness", method: "llm_judge", kind: "batch" },
     ],
   },
   {
-    useCaseId: "sales-draft",
+    useCaseId: "match",
     gates: [
-      { id: "tone", label: "Tone check", metric: "brand voice judge score", threshold: "at or above 0.80", kind: "batch" },
-      { id: "claims", label: "No unverified claims", metric: "flagged claims per draft", threshold: "0 allowed", kind: "inline" },
+      { id: "grounding", label: "Grounding", method: "groundedness", kind: "inline" },
+      { id: "relevance", label: "Match relevance", method: "llm_judge", kind: "batch" },
     ],
   },
   {
-    useCaseId: "billing-summary",
+    useCaseId: "screen",
     gates: [
-      { id: "numeric", label: "Numeric fidelity", metric: "figures matching source invoice", threshold: "1.00 required", kind: "inline" },
-      { id: "no-advice", label: "No financial advice", metric: "flagged advice statements", threshold: "0 allowed", kind: "inline" },
+      { id: "pii-block", label: "PII leak check", method: "pii_scan", kind: "inline" },
+      { id: "rank-acc", label: "Ranking accuracy", method: "exact_match", kind: "batch" },
     ],
   },
   {
-    useCaseId: "code-review",
+    useCaseId: "build",
     gates: [
-      { id: "false-pos", label: "False positive rate", metric: "review comments marked wrong", threshold: "at or below 0.15", kind: "batch" },
-      { id: "secret-scan", label: "Secret scan", metric: "leaked secrets in output", threshold: "0 allowed", kind: "inline" },
+      { id: "no-bias", label: "No biased language", method: "regex", kind: "inline" },
+      { id: "tone", label: "Brand tone", method: "llm_judge", kind: "batch" },
+    ],
+  },
+  {
+    useCaseId: "coach",
+    gates: [
+      { id: "pii-block", label: "PII leak check", method: "pii_scan", kind: "inline" },
+      { id: "guidance", label: "Guidance quality", method: "llm_judge", kind: "batch" },
+    ],
+  },
+  {
+    useCaseId: "negotiate",
+    gates: [
+      { id: "band-fidelity", label: "Band fidelity", method: "numeric_match", kind: "inline" },
+      { id: "no-advice", label: "No financial advice", method: "regex", kind: "inline" },
+      { id: "policy", label: "Policy adherence", method: "llm_judge", kind: "batch" },
+    ],
+  },
+  {
+    useCaseId: "ask-pulse",
+    gates: [
+      { id: "grounding", label: "Grounding", method: "groundedness", kind: "inline" },
+      { id: "faithful", label: "Faithfulness", method: "llm_judge", kind: "batch" },
+    ],
+  },
+  {
+    useCaseId: "ask",
+    gates: [
+      { id: "grounding", label: "Grounding", method: "groundedness", kind: "inline" },
+      { id: "faithful", label: "Faithfulness", method: "llm_judge", kind: "batch" },
+    ],
+  },
+  {
+    useCaseId: "detect",
+    gates: [
+      { id: "verdict-schema", label: "Structured verdict", method: "json_schema", kind: "inline" },
+      { id: "label-acc", label: "Label accuracy", method: "exact_match", kind: "batch" },
     ],
   },
 ];
@@ -203,118 +402,105 @@ export interface SloTargets {
 }
 
 export const SLO_TARGETS: Record<string, SloTargets> = {
-  "support-triage": { p95LatencyMs: 2000, costPerAnswerUsd: 0.006, gateBlockRate: 0.03 },
-  "kb-search": { p95LatencyMs: 2500, costPerAnswerUsd: 0.02, gateBlockRate: 0.05 },
-  "sales-draft": { p95LatencyMs: 3000, costPerAnswerUsd: 0.015, gateBlockRate: 0.03 },
-  "billing-summary": { p95LatencyMs: 2500, costPerAnswerUsd: 0.03, gateBlockRate: 0.02 },
-  "code-review": { p95LatencyMs: 4000, costPerAnswerUsd: 0.06, gateBlockRate: 0.05 },
+  penny_categorize: { p95LatencyMs: 1500, costPerAnswerUsd: 0.004, gateBlockRate: 0.02 },
+  penny_insights: { p95LatencyMs: 3000, costPerAnswerUsd: 0.03, gateBlockRate: 0.02 },
+  match: { p95LatencyMs: 2500, costPerAnswerUsd: 0.02, gateBlockRate: 0.05 },
+  screen: { p95LatencyMs: 2000, costPerAnswerUsd: 0.006, gateBlockRate: 0.03 },
+  build: { p95LatencyMs: 3000, costPerAnswerUsd: 0.015, gateBlockRate: 0.03 },
+  coach: { p95LatencyMs: 3500, costPerAnswerUsd: 0.04, gateBlockRate: 0.04 },
+  negotiate: { p95LatencyMs: 3000, costPerAnswerUsd: 0.05, gateBlockRate: 0.02 },
+  "ask-pulse": { p95LatencyMs: 2500, costPerAnswerUsd: 0.02, gateBlockRate: 0.05 },
+  ask: { p95LatencyMs: 2500, costPerAnswerUsd: 0.02, gateBlockRate: 0.05 },
+  detect: { p95LatencyMs: 1500, costPerAnswerUsd: 0.005, gateBlockRate: 0.08 },
 };
 
-export function useCaseName(id: string): string {
-  return USE_CASES.find((u) => u.id === id)?.name ?? id;
-}
+/* ── Sample use case profiles ─────────────────────────────────────────────── */
 
-/**
- * Sample use case profiles.
- *
- * Each profile is the single config object per use case: routing, retrieval,
- * agent, prompt, guardrails, evals, and SLOs. These are assembled from the same
- * sample configuration above so the console's Prompts, Guardrails, and Agent
- * tabs can read a coherent object per use case. Every value is placeholder
- * configuration for demonstration, not a live measurement. The follow up
- * workstreams replace the read only views with real editors.
- */
 const SAMPLE_TENANT = "org:example";
 
 /** Retrieval config for the use cases that ground answers over a corpus. */
 const SAMPLE_RETRIEVAL: Record<string, UseCaseProfile["retrieval"]> = {
-  "kb-search": {
-    source: "internal-kb",
+  penny_insights: {
+    source: "vector",
+    chunking: { size: 600, overlap: 80 },
+    embedModel: "workers-ai/@cf/baai/bge-large-en-v1.5",
+    topK: 5,
+    groundingThreshold: 0.9,
+  },
+  match: {
+    source: "hybrid",
+    chunking: { size: 800, overlap: 100 },
+    embedModel: "workers-ai/@cf/baai/bge-large-en-v1.5",
+    topK: 8,
+    groundingThreshold: 0.7,
+  },
+  "ask-pulse": {
+    source: "vector",
+    chunking: { size: 800, overlap: 120 },
+    embedModel: "workers-ai/@cf/baai/bge-large-en-v1.5",
+    topK: 6,
+    groundingThreshold: 0.85,
+  },
+  ask: {
+    source: "hybrid",
     chunking: { size: 800, overlap: 100 },
     embedModel: "workers-ai/@cf/baai/bge-large-en-v1.5",
     topK: 6,
-    groundingThreshold: 0.95,
-  },
-  "billing-summary": {
-    source: "invoices",
-    chunking: { size: 600, overlap: 80 },
-    embedModel: "workers-ai/@cf/baai/bge-large-en-v1.5",
-    topK: 4,
     groundingThreshold: 0.9,
   },
 };
 
-/** Agent config for the use cases that run a tool loop. */
+/** Agent config for the use cases that run a tool loop or a single tool call. */
 const SAMPLE_AGENT: Record<string, UseCaseProfile["agent"]> = {
-  "code-review": {
-    mode: "loop",
-    tools: ["read-diff", "run-linter", "search-repo"],
-    skills: ["review-checklist"],
-    maxSteps: 6,
-  },
-  "support-triage": {
-    mode: "single",
-    tools: ["classify-intent"],
-    skills: [],
-  },
-  "kb-search": {
-    mode: "loop",
-    tools: ["search-kb", "fetch-doc"],
-    skills: ["cite-sources"],
-    maxSteps: 4,
-  },
-  "sales-draft": {
-    mode: "single",
-    tools: ["lookup-account"],
-    skills: ["brand-voice"],
-  },
-  "billing-summary": {
-    mode: "loop",
-    tools: ["fetch-invoice", "lookup-account"],
-    skills: ["plain-language"],
-    maxSteps: 3,
-  },
+  penny_categorize: { mode: "single", tools: ["classify-intent"], skills: [] },
+  penny_insights: { mode: "loop", tools: ["fetch-ledger"], skills: [], maxSteps: 3 },
+  match: { mode: "loop", tools: ["search-candidates", "fetch-role"], skills: ["cite-sources"], maxSteps: 4 },
+  screen: { mode: "single", tools: ["classify-intent"], skills: [] },
+  build: { mode: "single", tools: [], skills: ["brand-voice"] },
+  coach: { mode: "loop", tools: ["lookup-role", "fetch-transcript"], skills: [], maxSteps: 6 },
+  negotiate: { mode: "loop", tools: ["lookup-comp-band", "policy-check"], skills: [], maxSteps: 4 },
+  "ask-pulse": { mode: "loop", tools: ["search-survey"], skills: ["cite-sources"], maxSteps: 3 },
+  ask: { mode: "loop", tools: ["search-kb", "fetch-doc"], skills: ["cite-sources"], maxSteps: 4 },
+  detect: { mode: "single", tools: ["classify-intent"], skills: [] },
 };
 
-/** Guardrails config per use case. */
+/** Guardrails config per use case. Floors reference the use case's inline eval keys. */
 const SAMPLE_GUARDRAILS: Record<string, UseCaseProfile["guardrails"]> = {
-  "support-triage": { pii: true, injectionGuard: true, floors: ["no-pii-leak"] },
-  "kb-search": { pii: true, injectionGuard: true, floors: ["cite-or-refuse"] },
-  "sales-draft": { pii: false, injectionGuard: true, floors: ["no-unverified-claims"] },
-  "billing-summary": { pii: true, injectionGuard: true, hitlThreshold: 0.7, floors: ["numeric-fidelity", "no-financial-advice"] },
-  "code-review": { pii: false, injectionGuard: true, floors: ["no-secret-leak"] },
+  penny_categorize: { pii: true, piiAction: "redact", injectionGuard: true, floors: ["pii-block"] },
+  penny_insights: {
+    pii: true,
+    piiAction: "block",
+    injectionGuard: true,
+    hitlThreshold: 0.7,
+    floors: ["numeric-fidelity", "no-advice"],
+  },
+  match: { pii: true, piiAction: "redact", injectionGuard: true, floors: ["grounding"] },
+  screen: { pii: true, piiAction: "block", injectionGuard: true, hitlThreshold: 0.6, floors: ["pii-block"] },
+  build: { pii: false, injectionGuard: true, floors: ["no-bias"] },
+  coach: { pii: true, piiAction: "redact", injectionGuard: true, floors: ["pii-block"] },
+  negotiate: {
+    pii: true,
+    piiAction: "block",
+    injectionGuard: true,
+    hitlThreshold: 0.8,
+    floors: ["band-fidelity", "no-advice"],
+  },
+  "ask-pulse": { pii: true, piiAction: "redact", injectionGuard: true, floors: ["grounding"] },
+  ask: { pii: false, injectionGuard: true, floors: ["grounding"] },
+  detect: { pii: false, injectionGuard: true, floors: ["verdict-schema"] },
 };
 
 /** System prompt reference per use case, resolved against the prompt registry. */
-const SAMPLE_SYSTEM_REF: Record<string, string> = {
-  "support-triage": "support-triage.system",
-  "kb-search": "kb-search.system",
-  "sales-draft": "sales-draft.system",
-  "billing-summary": "billing-summary.system",
-  "code-review": "code-review.system",
-};
-
-/** The registry check method each sample gate resolves to. Keyed by gate id so
- *  the console editor shows a real registry method, not the prose metric name. */
-const GATE_METHOD: Record<string, string> = {
-  "intent-acc": "exact_match",
-  "pii-block": "pii_scan",
-  grounding: "groundedness",
-  faithful: "llm_judge",
-  tone: "llm_judge",
-  claims: "llm_judge",
-  numeric: "numeric_match",
-  "no-advice": "regex",
-  "false-pos": "llm_judge",
-  "secret-scan": "pii_scan",
-};
+function systemRef(useCaseId: string): string {
+  return `${useCaseId}.system`;
+}
 
 function evalsForUseCase(useCaseId: string): UseCaseProfile["evals"] {
   const setup = EVAL_SETUP.find((s) => s.useCaseId === useCaseId);
   if (!setup) return [];
   return setup.gates.map((g) => ({
     key: g.id,
-    method: GATE_METHOD[g.id] ?? "regex",
+    method: g.method,
     floor: g.kind === "inline",
     mandatory: true,
     when: g.kind,
@@ -325,6 +511,11 @@ function sloForUseCase(useCaseId: string): UseCaseProfile["slo"] {
   return SLO_TARGETS[useCaseId] ?? {};
 }
 
+/**
+ * Sample use case profiles. Each profile is the single config object per use
+ * case: routing, retrieval, agent, prompt, guardrails, evals, and SLOs. Every
+ * value is placeholder configuration for demonstration, not a live measurement.
+ */
 export const SAMPLE_PROFILES: UseCaseProfile[] = USE_CASES.map((u) => {
   const cfg = MODEL_CONFIG.find((c) => c.useCaseId === u.id);
   return {
@@ -339,7 +530,7 @@ export const SAMPLE_PROFILES: UseCaseProfile[] = USE_CASES.map((u) => {
     },
     retrieval: SAMPLE_RETRIEVAL[u.id] ?? null,
     agent: SAMPLE_AGENT[u.id],
-    prompt: { systemRef: SAMPLE_SYSTEM_REF[u.id] ?? `${u.id}.system` },
+    prompt: { systemRef: systemRef(u.id) },
     guardrails: SAMPLE_GUARDRAILS[u.id] ?? {},
     evals: evalsForUseCase(u.id),
     slo: sloForUseCase(u.id),

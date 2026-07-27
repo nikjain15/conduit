@@ -26,7 +26,9 @@ export function createClient(config: ClientConfig): ConduitClient {
 }
 
 export { ConduitError } from "./error.ts";
+export { APP_LABELS, appLabel } from "./apps.ts";
 export type {
+  App,
   AgentResult,
   CatalogModel,
   ChatMessage,
@@ -70,10 +72,13 @@ export type {
   RetrieveResult,
   RunAgentParams,
   SloTarget,
+  SuqsApp,
   SuqsParams,
   SuqsResult,
   SuqsRow,
+  UsageApp,
   UsageParams,
   UsageResult,
+  UsageUseCase,
   UseCaseProfile,
 } from "./types.ts";

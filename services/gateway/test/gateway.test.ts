@@ -9,6 +9,7 @@ import { buildGatewayTools } from "../src/mcp";
 import { InMemoryDecisionStore } from "../src/metering";
 import type { CatalogModel } from "@conduit/catalog";
 import type {
+  App,
   CatalogSource,
   Decision,
   GatewayDeps,
@@ -16,6 +17,7 @@ import type {
   InferTask,
   ModelsResult,
   ParsedRequest,
+  Principal,
   SuqsResult,
   Tenant,
   UsageResult,
@@ -24,9 +26,16 @@ import type {
 const TENANT_A: Tenant = { id: "tenant-a", name: "Acme" };
 const TENANT_B: Tenant = { id: "tenant-b", name: "Beta" };
 
-const KEYS: Record<string, Tenant> = {
-  "key-a": TENANT_A,
-  "key-b": TENANT_B,
+const APP_A: App = { id: "founderfirst", label: "FounderFirst" };
+const APP_B: App = { id: "rally", label: "Rally" };
+
+// Each key resolves to a principal: a tenant and the app it calls as. Both are
+// derived from the token, never the request body.
+const KEYS: Record<string, Principal> = {
+  "key-a": { tenant: TENANT_A, app: APP_A },
+  "key-b": { tenant: TENANT_B, app: APP_B },
+  // Same tenant as key-a, but a different app: two products of one tenant.
+  "key-a-rally": { tenant: TENANT_A, app: { id: "rally", label: "Rally" } },
 };
 
 interface Fakes {
@@ -161,7 +170,7 @@ describe("gateway router", () => {
     expect(inferCalls[0].tenant.id).toBe("tenant-a");
   });
 
-  it("records a decision on infer and aggregates it per useCase in /v1/usage", async () => {
+  it("records a decision on infer and aggregates it per app then useCase in /v1/usage", async () => {
     const { deps, store } = makeDeps();
     const infer = (useCase: string) =>
       route(
@@ -173,13 +182,18 @@ describe("gateway router", () => {
         }),
         deps,
       );
-    await infer("summarize");
-    await infer("summarize");
-    await infer("classify");
+    await infer("penny_categorize");
+    await infer("penny_categorize");
+    await infer("penny_insights");
 
     const recorded = store.query("tenant-a");
     expect(recorded).toHaveLength(3);
-    expect(recorded.every((d: Decision) => d.tenant === "tenant-a" && d.at === 1_000_000)).toBe(true);
+    // Every stored decision carries the app derived from the token.
+    expect(
+      recorded.every(
+        (d: Decision) => d.tenant === "tenant-a" && d.app === "founderfirst" && d.at === 1_000_000,
+      ),
+    ).toBe(true);
 
     const usage = await route(
       req({ method: "GET", path: "/v1/usage", headers: bearer("key-a") }),
@@ -188,7 +202,17 @@ describe("gateway router", () => {
     expect(usage.status).toBe(200);
     expect(usage.json).toEqual({
       totalCostUsd: 0.006,
-      byUseCase: { classify: 0.002, summarize: 0.004 },
+      byApp: [
+        {
+          app: "founderfirst",
+          appLabel: "FounderFirst",
+          totalCostUsd: 0.006,
+          useCases: [
+            { useCase: "penny_categorize", costUsd: 0.004 },
+            { useCase: "penny_insights", costUsd: 0.002 },
+          ],
+        },
+      ],
     });
   });
 
@@ -199,7 +223,7 @@ describe("gateway router", () => {
         method: "POST",
         path: "/v1/infer",
         headers: bearer("key-a"),
-        body: { useCase: "summarize", messages: [] },
+        body: { useCase: "penny_categorize", messages: [] },
       }),
       deps,
     );
@@ -207,7 +231,56 @@ describe("gateway router", () => {
       req({ method: "GET", path: "/v1/usage", headers: bearer("key-b") }),
       deps,
     );
-    expect(usageB.json).toEqual({ totalCostUsd: 0, byUseCase: {} });
+    expect(usageB.json).toEqual({ totalCostUsd: 0, byApp: [] });
+  });
+
+  it("groups one tenant's decisions across two apps in /v1/usage", async () => {
+    const { deps } = makeDeps();
+    const infer = (key: string, useCase: string) =>
+      route(
+        req({
+          method: "POST",
+          path: "/v1/infer",
+          headers: bearer(key),
+          body: { useCase, messages: [{ role: "user", content: "x" }] },
+        }),
+        deps,
+      );
+    await infer("key-a", "penny_categorize");
+    await infer("key-a-rally", "detect");
+
+    const usage = (await route(
+      req({ method: "GET", path: "/v1/usage", headers: bearer("key-a") }),
+      deps,
+    )).json as UsageResult;
+    // Both apps of tenant-a appear, sorted by app id.
+    expect(usage.byApp.map((a) => a.app)).toEqual(["founderfirst", "rally"]);
+    expect(usage.byApp[0].useCases[0].useCase).toBe("penny_categorize");
+    expect(usage.byApp[1].useCases[0].useCase).toBe("detect");
+    expect(usage.totalCostUsd).toBeCloseTo(0.004, 6);
+  });
+
+  it("stamps the app from the token and ignores a body-supplied app", async () => {
+    const { deps, store } = makeDeps();
+    await route(
+      req({
+        method: "POST",
+        path: "/v1/infer",
+        headers: bearer("key-a"),
+        body: {
+          useCase: "penny_categorize",
+          messages: [{ role: "user", content: "x" }],
+          app: "rally",
+          appLabel: "Rally",
+        },
+      }),
+      deps,
+    );
+    const rows = store.query("tenant-a");
+    expect(rows).toHaveLength(1);
+    // The body claimed "rally" but the token resolves to founderfirst.
+    expect(rows[0].app).toBe("founderfirst");
+    expect(rows[0].appLabel).toBe("FounderFirst");
   });
 
   it("routes retrieve, agent, and evals to their injected cores", async () => {
@@ -302,12 +375,13 @@ describe("POST /v1/decisions and GET /v1/suqs", () => {
     const rows = store.query("tenant-a");
     expect(rows).toHaveLength(1);
     expect(rows[0].tenant).toBe("tenant-a");
+    expect(rows[0].app).toBe("founderfirst");
     expect(rows[0].useCase).toBe("kb-search");
     // Nothing landed under the attacker-supplied tenant.
     expect(store.query("tenant-b")).toHaveLength(0);
   });
 
-  it("surfaces a reported decision in both usage and suqs", async () => {
+  it("surfaces a reported decision grouped by app in both usage and suqs", async () => {
     const sloTargets = () => ({ p95LatencyMs: 2500, costPerAnswerUsd: 0.03, gateBlockRate: 0.05 });
     const { deps } = makeDeps({ sloTargets });
     await route(
@@ -316,12 +390,25 @@ describe("POST /v1/decisions and GET /v1/suqs", () => {
     );
 
     const usage = await route(req({ method: "GET", path: "/v1/usage", headers: bearer("key-a") }), deps);
-    expect(usage.json).toEqual({ totalCostUsd: 0.02, byUseCase: { "kb-search": 0.02 } });
+    expect(usage.json).toEqual({
+      totalCostUsd: 0.02,
+      byApp: [
+        {
+          app: "founderfirst",
+          appLabel: "FounderFirst",
+          totalCostUsd: 0.02,
+          useCases: [{ useCase: "kb-search", costUsd: 0.02 }],
+        },
+      ],
+    });
 
     const suqs = await route(req({ method: "GET", path: "/v1/suqs", headers: bearer("key-a") }), deps);
     const body = suqs.json as SuqsResult;
-    expect(body.byUseCase).toHaveLength(1);
-    expect(body.byUseCase[0]).toEqual({
+    expect(body.byApp).toHaveLength(1);
+    expect(body.byApp[0].app).toBe("founderfirst");
+    expect(body.byApp[0].appLabel).toBe("FounderFirst");
+    expect(body.byApp[0].useCases).toHaveLength(1);
+    expect(body.byApp[0].useCases[0]).toEqual({
       useCase: "kb-search",
       calls: 1,
       p95LatencyMs: 1800,
@@ -348,7 +435,7 @@ describe("POST /v1/decisions and GET /v1/suqs", () => {
       await report({ latencyMs: i * 100, gateStatus: i === 1 ? "block" : "pass" });
     }
     const suqs = await route(req({ method: "GET", path: "/v1/suqs", headers: bearer("key-a") }), deps);
-    const row = (suqs.json as SuqsResult).byUseCase[0];
+    const row = (suqs.json as SuqsResult).byApp[0].useCases[0];
     expect(row.calls).toBe(10);
     expect(row.p95LatencyMs).toBe(1000); // nearest-rank p95 of 100..1000
     expect(row.costPerAnswerUsd).toBe(0.001);
@@ -359,10 +446,10 @@ describe("POST /v1/decisions and GET /v1/suqs", () => {
   it("returns empty usage and suqs when there are no records, never invented numbers", async () => {
     const { deps } = makeDeps();
     const usage = await route(req({ method: "GET", path: "/v1/usage", headers: bearer("key-a") }), deps);
-    expect(usage.json as UsageResult).toEqual({ totalCostUsd: 0, byUseCase: {} });
+    expect(usage.json as UsageResult).toEqual({ totalCostUsd: 0, byApp: [] });
 
     const suqs = await route(req({ method: "GET", path: "/v1/suqs", headers: bearer("key-a") }), deps);
-    expect(suqs.json as SuqsResult).toEqual({ byUseCase: [] });
+    expect(suqs.json as SuqsResult).toEqual({ byApp: [] });
   });
 
   it("isolates reported decisions per tenant in suqs", async () => {
@@ -372,7 +459,7 @@ describe("POST /v1/decisions and GET /v1/suqs", () => {
       deps,
     );
     const suqsB = await route(req({ method: "GET", path: "/v1/suqs", headers: bearer("key-b") }), deps);
-    expect((suqsB.json as SuqsResult).byUseCase).toEqual([]);
+    expect((suqsB.json as SuqsResult).byApp).toEqual([]);
   });
 
   it("rejects a report missing required fields as 400", async () => {

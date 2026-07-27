@@ -20,10 +20,10 @@ import type {
   InferTask,
   ModelsResult,
   ParsedRequest,
+  Principal,
   RetrieveTask,
   RouteResponse,
   SloTarget,
-  Tenant,
 } from "./types";
 
 function badRequest(message: string): RouteResponse {
@@ -53,8 +53,9 @@ function asMessages(v: unknown): ChatMessage[] | null {
 export async function handleInfer(
   req: ParsedRequest,
   deps: GatewayDeps,
-  tenant: Tenant,
+  principal: Principal,
 ): Promise<RouteResponse> {
+  const { tenant, app } = principal;
   const body = req.body;
   if (!isObject(body)) return badRequest("body must be a JSON object");
   if (typeof body.useCase !== "string" || body.useCase.length === 0) {
@@ -63,8 +64,8 @@ export async function handleInfer(
   const messages = asMessages(body.messages);
   if (!messages) return badRequest("messages must be an array of {role, content}");
 
-  // Note: a client-supplied `tenant`/`tenantId` in the body is deliberately
-  // ignored. The tenant comes only from the resolved API key.
+  // Note: a client-supplied `tenant`/`tenantId`/`app` in the body is deliberately
+  // ignored. The tenant and app come only from the resolved API key.
   const task: InferTask = {
     useCase: body.useCase,
     messages,
@@ -77,6 +78,8 @@ export async function handleInfer(
 
   const decision: Decision = {
     tenant: tenant.id,
+    app: app.id,
+    appLabel: app.label,
     useCase: task.useCase,
     model: result.model,
     provider: result.provider,
@@ -99,8 +102,9 @@ export async function handleInfer(
 export async function handleDecisions(
   req: ParsedRequest,
   deps: GatewayDeps,
-  tenant: Tenant,
+  principal: Principal,
 ): Promise<RouteResponse> {
+  const { tenant, app } = principal;
   const body = req.body;
   if (!isObject(body)) return badRequest("body must be a JSON object");
   if (typeof body.useCase !== "string" || body.useCase.length === 0) {
@@ -119,9 +123,12 @@ export async function handleDecisions(
   const gateStatus =
     body.gateStatus === "pass" || body.gateStatus === "block" ? body.gateStatus : undefined;
 
-  // Tenant is stamped from the key, never from the body.
+  // Tenant and app are stamped from the key, never from the body: a
+  // body-supplied `app` (like a body-supplied tenant) is ignored.
   const decision: Decision = {
     tenant: tenant.id,
+    app: app.id,
+    appLabel: app.label,
     useCase: body.useCase,
     model: body.model,
     costUsd: body.costUsd,
@@ -141,7 +148,7 @@ export async function handleDecisions(
 export async function handleRetrieve(
   req: ParsedRequest,
   deps: GatewayDeps,
-  tenant: Tenant,
+  principal: Principal,
 ): Promise<RouteResponse> {
   const body = req.body;
   if (!isObject(body)) return badRequest("body must be a JSON object");
@@ -152,7 +159,7 @@ export async function handleRetrieve(
     query: body.query,
     ...(typeof body.topK === "number" ? { topK: body.topK } : {}),
   };
-  const result = await deps.retrieve(task, tenant);
+  const result = await deps.retrieve(task, principal.tenant);
   return { status: 200, json: result };
 }
 
@@ -160,7 +167,7 @@ export async function handleRetrieve(
 export async function handleAgent(
   req: ParsedRequest,
   deps: GatewayDeps,
-  tenant: Tenant,
+  principal: Principal,
 ): Promise<RouteResponse> {
   const body = req.body;
   if (!isObject(body)) return badRequest("body must be a JSON object");
@@ -171,7 +178,7 @@ export async function handleAgent(
     goal: body.goal,
     ...(typeof body.maxSteps === "number" ? { maxSteps: body.maxSteps } : {}),
   };
-  const result = await deps.runAgent(task, tenant);
+  const result = await deps.runAgent(task, principal.tenant);
   return { status: 200, json: result };
 }
 
@@ -179,7 +186,7 @@ export async function handleAgent(
 export async function handleEvalsRun(
   req: ParsedRequest,
   deps: GatewayDeps,
-  tenant: Tenant,
+  principal: Principal,
 ): Promise<RouteResponse> {
   const body = req.body;
   if (!isObject(body)) return badRequest("body must be a JSON object");
@@ -187,37 +194,39 @@ export async function handleEvalsRun(
     return badRequest("datasetId is required");
   }
   const task: EvalTask = { datasetId: body.datasetId };
-  const result = await deps.evaluate(task, tenant);
+  const result = await deps.evaluate(task, principal.tenant);
   return { status: 200, json: result };
 }
 
 /**
- * GET /v1/usage?window=. Aggregates the tenant's own real decisions (per use
- * case and total). Returns an empty result when the tenant has no records; it
- * never fabricates a figure.
+ * GET /v1/usage?window=. Aggregates the tenant's own real decisions, grouped by
+ * app then use case, plus the tenant-wide total. Returns an empty result when
+ * the tenant has no records; it never fabricates a figure.
  */
 export async function handleUsage(
   req: ParsedRequest,
   deps: GatewayDeps,
-  tenant: Tenant,
+  principal: Principal,
 ): Promise<RouteResponse> {
   const now = (deps.now ?? Date.now)();
   const since = parseWindow(req.query.get("window"), now);
-  const decisions = await deps.store.query(tenant.id, since > 0 ? { since } : {});
+  const decisions = await deps.store.query(principal.tenant.id, since > 0 ? { since } : {});
   return { status: 200, json: aggregateUsage(decisions) };
 }
 
 /**
  * GET /v1/suqs?window=. Computes p95 latency, cost per answer, and gate block
- * rate per use case from the tenant's real decisions, and attaches the profile
- * SLO target for each use case when one is configured. Returns an empty result
- * (`{ byUseCase: [] }`) when the tenant has no records.
+ * rate per use case from the tenant's real decisions, grouped by app then use
+ * case, and attaches the profile SLO target for each use case when one is
+ * configured. Returns an empty result (`{ byApp: [] }`) when the tenant has no
+ * records.
  */
 export async function handleSuqs(
   req: ParsedRequest,
   deps: GatewayDeps,
-  tenant: Tenant,
+  principal: Principal,
 ): Promise<RouteResponse> {
+  const { tenant } = principal;
   const now = (deps.now ?? Date.now)();
   const since = parseWindow(req.query.get("window"), now);
   const decisions = await deps.store.query(tenant.id, since > 0 ? { since } : {});
@@ -264,7 +273,7 @@ async function cachedOpenRouter(catalog: CatalogSource, now: number): Promise<Ca
 export async function handleModels(
   req: ParsedRequest,
   deps: GatewayDeps,
-  _tenant: Tenant,
+  _principal: Principal,
 ): Promise<RouteResponse> {
   const catalog = deps.catalog;
   if (!catalog) {

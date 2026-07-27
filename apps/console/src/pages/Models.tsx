@@ -5,9 +5,11 @@ import {
   MODEL_CONFIG,
   SAMPLE_NOTICE,
   USE_CASES,
+  useCasesByApp,
   type ModelConfig,
   type UseCase,
 } from "../data/sample.ts";
+import { UseCaseTag } from "./AppGroup.tsx";
 
 /** Provider grouping order and display labels for the dropdowns. */
 const PROVIDER_ORDER = ["anthropic", "workers-ai", "openrouter"] as const;
@@ -121,7 +123,7 @@ function ModelCard({ useCase, initial, models, recommended }: ModelCardProps) {
 
   return (
     <div className="card">
-      <h3>{useCase.name}</h3>
+      <UseCaseTag app={useCase.app} useCase={useCase.name} />
       <p className="sub">{useCase.summary}</p>
 
       {recommendedNames.length > 0 && (
@@ -249,17 +251,27 @@ export function Models() {
       {status === "loading" && <p className="sub">Loading the model catalog from the gateway.</p>}
       {status === "error" && <p className="sub">The model catalog could not be loaded from the gateway.</p>}
 
-      <div className="grid cols-2">
-        {USE_CASES.map((u) => (
-          <ModelCard
-            key={u.id}
-            useCase={u}
-            initial={byId[u.id]}
-            models={models}
-            recommended={recommended[u.id] ?? []}
-          />
-        ))}
-      </div>
+      {useCasesByApp().map(({ app, useCases }) => (
+        <div className="app-group" key={app.id}>
+          <div className="app-heading">
+            <h3>{app.label}</h3>
+            <span className="app-count">
+              {useCases.length} use {useCases.length === 1 ? "case" : "cases"}
+            </span>
+          </div>
+          <div className="grid cols-2">
+            {useCases.map((u) => (
+              <ModelCard
+                key={u.id}
+                useCase={u}
+                initial={byId[u.id]}
+                models={models}
+                recommended={recommended[u.id] ?? []}
+              />
+            ))}
+          </div>
+        </div>
+      ))}
     </section>
   );
 }

@@ -66,12 +66,14 @@ Identical in both modes.
 - `retrieve({ query, topK? })` returns `{ chunks: [{ id, score, text }], grounded }`.
 - `runAgent({ goal, maxSteps? })` returns `{ answer, steps }`.
 - `evaluate({ datasetId })` returns `{ summary, metrics }`.
-- `usage({ window? })` returns `{ totalCostUsd, byUseCase }`.
+- `usage({ window? })` returns `{ totalCostUsd, byApp: [{ app, appLabel, totalCostUsd, useCases: [{ useCase, costUsd }] }] }`, grouped by app then use case.
 
 Gateway mode also serves these optional methods (undefined in embedded mode):
 
 - `reportDecision({ useCase, model, costUsd, latencyMs, provider?, tokensIn?, tokensOut?, gateStatus?, at? })` meters one decision and returns `{ accepted, tenant }`. The tenant is stamped by the gateway from the API key.
-- `suqs({ window? })` returns `{ byUseCase: [{ useCase, calls, p95LatencyMs, costPerAnswerUsd, gateBlockRate, target }] }`, computed from real recorded decisions. Empty when there are no records.
+- `suqs({ window? })` returns `{ byApp: [{ app, appLabel, useCases: [{ useCase, calls, p95LatencyMs, costPerAnswerUsd, gateBlockRate, target }] }] }`, grouped by app then use case and computed from real recorded decisions. Empty when there are no records.
+
+An `APP_LABELS` map (app id to display name) and an `appLabel(id)` helper are exported for rendering an app id with its proper name.
 
 ## Gateway HTTP contract
 

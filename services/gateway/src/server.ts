@@ -44,14 +44,17 @@ function writeJson(res: ServerResponse, status: number, json: unknown): void {
   res.end(body);
 }
 
-/** Resolve the tenant for MCP transport requests, mirroring /v1 auth. */
+/** Resolve the tenant for MCP transport requests, mirroring /v1 auth. The MCP
+ *  surface is scoped to the tenant; the app is only needed for metering, which
+ *  the MCP tools do not perform, so the tenant is what is threaded through. */
 async function authTenant(
   headers: Record<string, string | undefined>,
   deps: GatewayDeps,
 ): Promise<Tenant | null> {
   const token = bearerToken(headers);
   if (!token) return null;
-  return (await deps.lookupTenant(token)) ?? null;
+  const principal = await deps.lookupTenant(token);
+  return principal?.tenant ?? null;
 }
 
 /**

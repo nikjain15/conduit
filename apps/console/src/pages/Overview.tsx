@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import { client } from "../data/client.ts";
-import type { SuqsResult, UsageResult } from "@conduit/client";
-import { USE_CASES, useCaseName } from "../data/sample.ts";
+import type { SuqsResult, SuqsRow, UsageResult } from "@conduit/client";
 import { NoLiveData } from "./NoLiveData.tsx";
 
 function usd(n: number): string {
@@ -9,7 +8,7 @@ function usd(n: number): string {
 }
 
 /** A SUQS row is over target when any measured value exceeds its target. */
-function overTarget(row: SuqsResult["byUseCase"][number]): boolean {
+function overTarget(row: SuqsRow): boolean {
   const t = row.target;
   if (!t) return false;
   return (
@@ -27,7 +26,7 @@ export function Overview() {
     let live = true;
     void Promise.all([
       client.usage({ window: "month" }),
-      client.suqs ? client.suqs({ window: "month" }) : Promise.resolve<SuqsResult>({ byUseCase: [] }),
+      client.suqs ? client.suqs({ window: "month" }) : Promise.resolve<SuqsResult>({ byApp: [] }),
     ]).then(([u, s]) => {
       if (!live) return;
       setUsage(u);
@@ -39,16 +38,22 @@ export function Overview() {
   }, []);
 
   const loading = usage === null || suqs === null;
-  const hasUsage = !!usage && Object.keys(usage.byUseCase).length > 0;
-  const hasSuqs = !!suqs && suqs.byUseCase.length > 0;
-  const flagged = suqs ? suqs.byUseCase.filter(overTarget) : [];
+  const hasUsage = !!usage && usage.byApp.length > 0;
+  const hasSuqs = !!suqs && suqs.byApp.length > 0;
+
+  // Flatten the grouped SUQS rows, keeping the app label on each so a flagged
+  // row can be read as "app / useCase".
+  const allRows = suqs
+    ? suqs.byApp.flatMap((a) => a.useCases.map((r) => ({ appLabel: a.appLabel, row: r })))
+    : [];
+  const flagged = allRows.filter((x) => overTarget(x.row));
 
   return (
     <section className="page">
       <h2>Overview</h2>
       <p className="lead">
-        Spend this month across use cases and a health summary from the SUQS service level objectives.
-        Both read live from the gateway usage and suqs endpoints.
+        Spend this month per app and a health summary from the SUQS service level objectives. Both read
+        live from the gateway usage and suqs endpoints, grouped by the app each use case belongs to.
       </p>
 
       {loading ? (
@@ -59,23 +64,19 @@ export function Overview() {
         <div className="grid cols-2">
           <div className="card">
             <h3>Spend this month</h3>
-            <p className="sub">Reported by the gateway usage endpoint.</p>
+            <p className="sub">Per app, reported by the gateway usage endpoint.</p>
             {hasUsage ? (
               <>
                 <div className="stat" style={{ marginBottom: 18 }}>
                   <span className="value mono">{usd(usage!.totalCostUsd)}</span>
-                  <span className="label">total across {USE_CASES.length} use cases</span>
+                  <span className="label">total across {usage!.byApp.length} apps</span>
                 </div>
-                <table className="data">
-                  <tbody>
-                    {Object.entries(usage!.byUseCase).map(([id, v]) => (
-                      <tr key={id}>
-                        <td>{useCaseName(id)}</td>
-                        <td className="mono" style={{ textAlign: "right" }}>{usd(v)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                {usage!.byApp.map((a) => (
+                  <div className="app-rollup" key={a.app}>
+                    <span className="app-rollup-name">{a.appLabel}</span>
+                    <span className="mono">{usd(a.totalCostUsd)}</span>
+                  </div>
+                ))}
               </>
             ) : (
               <NoLiveData what="Spend" />
@@ -89,7 +90,7 @@ export function Overview() {
               <>
                 <div className="stat" style={{ marginBottom: 18 }}>
                   <span className="value mono">
-                    {suqs!.byUseCase.length - flagged.length} / {suqs!.byUseCase.length}
+                    {allRows.length - flagged.length} / {allRows.length}
                   </span>
                   <span className="label">use cases within every target</span>
                 </div>
@@ -98,9 +99,11 @@ export function Overview() {
                 ) : (
                   <table className="data">
                     <tbody>
-                      {flagged.map((r) => (
-                        <tr key={r.useCase}>
-                          <td>{useCaseName(r.useCase)}</td>
+                      {flagged.map((x) => (
+                        <tr key={`${x.appLabel}/${x.row.useCase}`}>
+                          <td className="mono">
+                            {x.appLabel} / {x.row.useCase}
+                          </td>
                           <td style={{ textAlign: "right" }}>
                             <span className="pill bad">over target</span>
                           </td>

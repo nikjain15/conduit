@@ -49,7 +49,17 @@ function makeCore(overrides: Partial<EmbeddedCore> = {}): EmbeddedCore {
       summary: `ran ${datasetId}`,
       metrics: { accuracy: 1 },
     }),
-    usage: async () => ({ totalCostUsd: 5, byUseCase: { chat: 5 } }),
+    usage: async () => ({
+      totalCostUsd: 5,
+      byApp: [
+        {
+          app: "founderfirst",
+          appLabel: "FounderFirst",
+          totalCostUsd: 5,
+          useCases: [{ useCase: "chat", costUsd: 5 }],
+        },
+      ],
+    }),
     ...overrides,
   };
 }
@@ -134,7 +144,14 @@ describe("embedded mode", () => {
     });
     expect(await client.usage()).toEqual({
       totalCostUsd: 5,
-      byUseCase: { chat: 5 },
+      byApp: [
+        {
+          app: "founderfirst",
+          appLabel: "FounderFirst",
+          totalCostUsd: 5,
+          useCases: [{ useCase: "chat", costUsd: 5 }],
+        },
+      ],
     });
   });
 });
@@ -207,7 +224,7 @@ describe("gateway mode", () => {
 
   it("usage is a GET with the window query param and no body", async () => {
     const { fetch, calls } = mockFetch(
-      jsonResponse({ totalCostUsd: 2, byUseCase: {} }),
+      jsonResponse({ totalCostUsd: 2, byApp: [] }),
     );
     const client = createClient(gatewayCfg(fetch));
     await client.usage({ window: "7d" });

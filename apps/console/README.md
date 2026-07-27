@@ -7,13 +7,22 @@ track SUQS service level objectives.
 Built with Vite, React, and TypeScript. No chart library: the cost bars are plain SVG
 style flexbox columns.
 
+## Apps and use cases
+
+Every use case belongs to one app, and every tab groups its use cases under the app they
+belong to, so a card or row always reads as "app / useCase". The fleet is FounderFirst
+(penny_categorize, penny_insights), RoleOS (match, screen, build, coach, negotiate),
+Pulse (ask-pulse), and Rally (ask, detect). In production the app a caller belongs to is
+derived from the bearer token, never the request body; the gateway groups usage and suqs
+by it.
+
 ## Sections
 
-- Overview: spend this month across use cases plus a health summary, both read live from the gateway usage and suqs endpoints.
-- Models: the core screen. Per use case, a card over the live model catalog with a main model, a backup that takes over on a cap hit, a monthly cap in USD, and a cached answer reuse toggle. Caching is locked off for customer facing and financial use cases. Each card has Save and Test actions.
-- Eval setup: the gates and thresholds each use case must clear, split into inline and batch checks.
-- Cost dashboards: spend per use case, read live from the gateway usage endpoint, drawn as scaled bars.
-- SUQS SLOs: p95 latency, cost per answer, and gate block rate computed live from real metered decisions, against target, flagged when over.
+- Overview: spend this month per app plus a health summary, both read live from the gateway usage and suqs endpoints.
+- Models: the core screen. Cards are grouped under an app heading, one per use case, over the live model catalog: a main model, a backup that takes over on a cap hit, a monthly cap in USD, and a cached answer reuse toggle. Caching is locked off for customer facing and financial use cases. Each card has Save and Test actions.
+- Eval setup: the gates and thresholds each use case must clear, grouped by app, split into inline and batch checks.
+- Cost dashboards: a per-app spend rollup first, then the per-use-case breakdown within each app, read live from the gateway usage endpoint and drawn as scaled bars.
+- SUQS SLOs: p95 latency, cost per answer, and gate block rate computed live from real metered decisions, grouped by app, against target, flagged when over.
 
 ## Data layer
 

@@ -28,9 +28,27 @@ export interface Tenant {
   name?: string;
 }
 
-/** Resolve a bearer API key to a tenant. Return null for unknown keys.
- *  Injected so tests supply their own key table. */
-export type LookupTenant = (apiKey: string) => Tenant | null | Promise<Tenant | null>;
+/** A resolved app: the product the calling token belongs to. Like the tenant,
+ *  it is a property of the caller derived from the bearer token, never read from
+ *  the request body. Its `label` is the human name shown in the console. */
+export interface App {
+  id: string;
+  label: string;
+}
+
+/**
+ * The principal a bearer token resolves to: a tenant and the app it calls as.
+ * Both are trusted only from the token, never from the request body, so a
+ * client cannot spoof either the tenant or the app it reports under.
+ */
+export interface Principal {
+  tenant: Tenant;
+  app: App;
+}
+
+/** Resolve a bearer API key to a principal (`{ tenant, app }`). Return null for
+ *  unknown keys. Injected so tests supply their own key table. */
+export type LookupTenant = (apiKey: string) => Principal | null | Promise<Principal | null>;
 
 /** The inference task the gateway hands to the injected `infer` core. The
  *  tenant id is stamped by the gateway from the resolved key, not the body. */
@@ -98,11 +116,18 @@ export interface EvalResult {
  * and accepts externally reported ones (via /v1/decisions). Only `tenant`,
  * `useCase`, `model`, `costUsd`, `latencyMs`, and `at` are guaranteed; the token
  * counts, provider, and gate status are optional because not every producer has
- * them. The tenant is always stamped by the gateway from the resolved API key,
- * never trusted from a client body.
+ * them. The tenant and app are always stamped by the gateway from the resolved
+ * API key, never trusted from a client body: `app` records which product the
+ * decision belongs to (e.g. "founderfirst") and `appLabel` its display name.
  */
 export interface Decision {
   tenant: string;
+  /** The app the calling token belongs to. Stamped from the token, never the
+   *  body, so a client-supplied app is ignored the same way tenant is. */
+  app: string;
+  /** Display name for `app`, denormalized onto the record so the usage and suqs
+   *  rollups can label each app group without a separate registry lookup. */
+  appLabel?: string;
   useCase: string;
   model: string;
   provider?: string;
@@ -141,14 +166,30 @@ export interface DecisionStore {
   query(tenant: string, filter?: DecisionQuery): Decision[] | Promise<Decision[]>;
 }
 
+/** One use case's summed cost inside an app's usage rollup. */
+export interface UsageUseCase {
+  useCase: string;
+  costUsd: number;
+}
+
+/** One app's usage rollup: its total spend and the per-use-case breakdown. */
+export interface UsageApp {
+  app: string;
+  appLabel: string;
+  totalCostUsd: number;
+  useCases: UsageUseCase[];
+}
+
 /**
- * Per-use-case usage rollup returned by GET /v1/usage. `byUseCase` maps a use
- * case id to its summed cost in USD. Empty when the tenant has no records: an
- * honest empty state, never a fabricated figure.
+ * Usage rollup returned by GET /v1/usage, grouped by app then use case.
+ * `totalCostUsd` is the tenant-wide total; `byApp` holds one entry per app the
+ * tenant has metered decisions under. Empty when the tenant has no records: an
+ * honest empty state (`{ totalCostUsd: 0, byApp: [] }`), never a fabricated
+ * figure.
  */
 export interface UsageResult {
   totalCostUsd: number;
-  byUseCase: Record<string, number>;
+  byApp: UsageApp[];
 }
 
 /** A profile SLO target the SUQS endpoint compares measured values against. */
@@ -173,9 +214,17 @@ export interface SuqsRow {
   target: SloTarget | null;
 }
 
-/** GET /v1/suqs result. `byUseCase` is empty when the tenant has no records. */
+/** One app's SUQS rollup: its use case rows grouped under the app. */
+export interface SuqsApp {
+  app: string;
+  appLabel: string;
+  useCases: SuqsRow[];
+}
+
+/** GET /v1/suqs result, grouped by app then use case. `byApp` is empty when the
+ *  tenant has no records. */
 export interface SuqsResult {
-  byUseCase: SuqsRow[];
+  byApp: SuqsApp[];
 }
 
 /** Resolve the SLO target for a tenant's use case, or undefined when none is
@@ -217,7 +266,8 @@ export interface ModelsResult {
 }
 
 /** A request parsed by the transport into a shape the router understands. The
- *  `tenant` field is filled in by the router after auth, never by the client. */
+ *  `tenant` and `app` fields are filled in by the router after auth from the
+ *  resolved principal, never by the client. */
 export interface ParsedRequest {
   method: string;
   path: string;
@@ -225,6 +275,7 @@ export interface ParsedRequest {
   headers: Record<string, string | undefined>;
   body: unknown;
   tenant?: Tenant;
+  app?: App;
 }
 
 /** What every handler returns. The transport serializes `json` with `status`. */
