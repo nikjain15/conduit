@@ -8,6 +8,7 @@ what it grades.
 |---|---|---|---|
 | `dataset/guardrails.jsonl` | 35 | The policy engine let unsafe output through, or blocked a real user | Yes |
 | `dataset/model-contract.jsonl` | 12 | A sampling param reached a model that rejects it, so the caller sees an opaque HTTP 400 | Yes, with one known gap recorded below |
+| `dataset/judge-validation.jsonl` | 30 | The judge marks badly, so every score it produces is unreliable | Structure and floor yes, the measurement needs a key |
 
 Run them with `npx vitest run evals`. They need no API key and touch no network:
 the guardrail set calls `runGuardrails` from `@conduit/guardrails` directly, and
@@ -67,6 +68,62 @@ today and CI stays green on a known, written down gap. When the core is fixed,
 vitest reports an unexpected pass and forces whoever fixed it to flip `it.fails`
 to `it` in the same change. The gap cannot be silently forgotten, and it cannot
 silently stay broken.
+
+## Validating the judge
+
+An unvalidated judge does not produce evidence, it produces confidence. Conduit
+uses an LLM to mark other LLM output, and until this set existed nothing measured
+whether that marking was any good.
+
+**Method.** Two binary verdicts per case, graded separately:
+
+- **faithfulness** does the answer say only what the source supports?
+- **relevance** does the answer address the question asked?
+
+They are split because their fixes differ. A grounding failure points at
+retrieval or the prompt; a relevance failure points at query understanding. One
+combined "is this good" verdict hides which fix you need. RAGAS, TruLens,
+DeepEval and Anthropic's agent guidance all converge on this decomposition.
+
+**Why the labels hold up.** Every verdict is decidable by reading the source, not
+a matter of taste. An answer counts as unfaithful only when it states something
+that contradicts the source or appears nowhere in it, and each case carries a
+`why` naming the exact span. Any label can be re-checked in under a minute.
+
+**Why the set is class balanced.** 15 of 30 faithful, 15 of 30 relevant. On a
+skewed set a judge that says "pass" to everything scores the base rate and looks
+competent. Here it scores 0.50 agreement and a kappa of 0, which is the point.
+
+**The metric.** Cohen's kappa, which corrects for agreement arising by chance,
+reported next to raw agreement, the base rate, and both per-class rates. The
+per-class split matters because kappa alone hides which way a judge fails, and
+the dangerous direction is letting bad output through rather than blocking good
+output. The floor is **kappa 0.6** on both dimensions, the common production
+threshold and the boundary between moderate and substantial agreement on the
+Landis and Koch scale. Both dimensions must clear it: a judge that grades
+groundedness well and relevance at chance is not validated.
+
+**Running it.**
+
+```
+ANTHROPIC_API_KEY=... npx vitest run evals/judge-validation.live.test.ts
+```
+
+It grades two models by default, a cheap tier and a strong one, because the
+comparison answers a question worth money: if the cheap judge marks as
+accurately, it is the correct production choice. Results are written to
+`results/judge-validation.json` and committed, so a claim about judge accuracy
+always points at a dated measurement naming the models used.
+
+`.github/workflows/judge-validation.yml` runs it on pull requests that touch the
+judge or this set, and weekly to catch drift as models change underneath it. The
+free test in `judge-validation.test.ts` holds any recorded number to its floor on
+every pull request, and checks the set stays balanced and large enough to be
+worth measuring against.
+
+**Current state: not yet measured.** `results/judge-validation.json` is a
+placeholder with an empty `reports` array. No claim about this judge's accuracy
+is supported until that file carries a real run.
 
 ## Growing the sets
 

@@ -1,0 +1,72 @@
+name: judge-validation
+
+# Measures whether the LLM judge marks correctly, against a labelled, class
+# balanced set. This is the only workflow that spends API credit, so it is
+# scoped rather than run on everything:
+#
+#   - on pull requests that touch the judge, the panel, or the validation set,
+#     because those are the changes that can move the number
+#   - weekly, because judges drift as models change underneath them, and a
+#     number measured once is a number that quietly goes stale
+#   - on demand
+#
+# The ordinary `ci` workflow still runs the free offline gates on every pull
+# request. This one adds the measurement that needs a key.
+#
+# Requires the ANTHROPIC_API_KEY repository secret. Without it the job reports
+# that it was skipped rather than failing, so a fork or an outside contributor's
+# pull request is not blocked by a secret they cannot have.
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "packages/inference/src/judge.ts"
+      - "packages/evals/src/judgeCheck.ts"
+      - "evals/dataset/judge-validation.jsonl"
+      - "evals/run-judge-validation.ts"
+      - "evals/judge-metrics.ts"
+      - ".github/workflows/judge-validation.yml"
+  schedule:
+    # Mondays 06:00 UTC. Catches judge drift from model changes upstream.
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install
+        run: npm install
+
+      - name: Check for API key
+        id: key
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          if [ -n "$ANTHROPIC_API_KEY" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::ANTHROPIC_API_KEY is not set, so the judge was not measured. The offline checks in the ci workflow still ran."
+          fi
+
+      - name: Measure the judge
+        if: steps.key.outputs.present == 'true'
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: npx vitest run evals/judge-validation.live.test.ts
+
+      # Uploaded whether or not the assertion passed, so a judge that fell below
+      # its floor leaves the numbers behind to diagnose.
+      - name: Upload the recorded result
+        if: always() && steps.key.outputs.present == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: judge-validation-result
+          path: evals/results/judge-validation.json
+          if-no-files-found: warn

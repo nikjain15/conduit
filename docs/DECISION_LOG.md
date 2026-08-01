@@ -51,12 +51,18 @@ precision 0.83 and a false block rate of 0.25 on the golden set, against a recal
 of 1.00. A wrongly blocked request has no recovery path, because block outranks
 escalate in the severity order. Fix sequence in `docs/SAFETY.md`.
 
-**The judge panel is unvalidated.** `packages/evals/src/judgeCheck.ts` wraps the
-real inference judge rather than reimplementing it, which is the right structure,
-and the tests exercise genuine panel logic. But nothing anywhere measures whether
-the judge agrees with a human. Every score it produces is currently unqualified
-by its own error rate. A validation set of human labelled outputs, reported as
-agreement against the pass base rate, is the missing piece.
+**The judge panel is not yet measured, but it is now measurable.**
+`evals/dataset/judge-validation.jsonl` holds 30 class balanced cases with labels
+that are decidable from the source rather than a matter of taste, graded on the
+two standard dimensions (faithfulness and relevance) separately. The runner
+drives the shipped judge, not a copy, and reports Cohen's kappa against a 0.6
+floor alongside the base rate and both per-class rates.
+
+What is still open is the run itself: `evals/results/judge-validation.json` is a
+placeholder with an empty `reports` array, so no claim about judge accuracy is
+supported yet. Running it needs an ANTHROPIC_API_KEY, and the workflow at
+`.github/workflows/judge-validation.yml` will do it on judge-touching pull
+requests and weekly once that secret is set.
 
 **No cost per use case at volume.** The core records cost per decision and the
 console charts it, so the mechanism is there. No document states what a given use

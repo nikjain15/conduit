@@ -1,0 +1,8 @@
+{
+  "ran": "never",
+  "datasetVersion": "v1",
+  "cases": 30,
+  "reports": [],
+  "kappaFloor": 0.6,
+  "notes": "Placeholder. The judge has NOT been validated yet. Run ANTHROPIC_API_KEY=... npx vitest run evals/judge-validation.live.test.ts to replace this with a real measurement. Until reports is non-empty, no claim about judge accuracy is supported."
+}
