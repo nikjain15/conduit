@@ -16,5 +16,12 @@
     "noEmit": true,
     "types": ["node"]
   },
-  "include": ["packages/*/src", "packages/*/test", "services/*/src", "services/*/test", "apps/*/src"]
+  "include": [
+    "packages/*/src",
+    "packages/*/test",
+    "services/*/src",
+    "services/*/test",
+    "apps/*/src",
+    "evals"
+  ]
 }

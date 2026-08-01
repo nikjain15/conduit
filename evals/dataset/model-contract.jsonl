@@ -1,0 +1,33 @@
+// Conduit model contract golden set, v1.
+//
+// The break this set exists to catch, in the maintainer's words: a solo builder
+// wiring a second app copies a profile that pins a reasoning tier and carries
+// `temperature: 0.7` from an older app. Current Anthropic reasoning tiers reject
+// sampling params with an HTTP 400, and that 400 does not look like a config
+// mistake, it looks like an auth or model id failure. Conduit's promise is that
+// the core only sends a sampling param to a model that accepts it.
+//
+// Each row states, for one model, whether a requested sampling param should
+// reach the provider. `expect` is the CONTRACT, not a description of today's
+// behaviour. See evals/README.md for the measured gap between the two.
+//
+// Provenance: derived from the model facts recorded in
+// packages/catalog/src/curated.ts, which is the single place Conduit records
+// which models accept sampling. Synthetic, not sampled from traffic.
+//
+// Bands:
+//   reasoning-tier   rejects temperature / top_p / top_k, so the core must strip
+//   sampling-ok      accepts sampling params, so the core must pass them through
+//   no-param         caller sent no sampling param, so nothing to strip
+{"id": "mc-01", "band": "reasoning-tier", "model": "claude-opus-5", "requested": {"temperature": 0.7}, "expect": "strip"}
+{"id": "mc-02", "band": "reasoning-tier", "model": "claude-opus-4-8", "requested": {"temperature": 0.2}, "expect": "strip"}
+{"id": "mc-03", "band": "reasoning-tier", "model": "claude-sonnet-5", "requested": {"temperature": 1}, "expect": "strip"}
+{"id": "mc-04", "band": "reasoning-tier", "model": "claude-fable-5", "requested": {"temperature": 0}, "expect": "strip"}
+{"id": "mc-05", "band": "reasoning-tier", "model": "claude-opus-5", "requested": {"temperature": 0}, "expect": "strip"}
+{"id": "mc-06", "band": "sampling-ok", "model": "claude-haiku-4-5", "requested": {"temperature": 0.7}, "expect": "send"}
+{"id": "mc-07", "band": "sampling-ok", "model": "claude-haiku-4-5", "requested": {"temperature": 0}, "expect": "send"}
+{"id": "mc-08", "band": "sampling-ok", "model": "@cf/meta/llama-3.3-70b-instruct-fp8-fast", "requested": {"temperature": 0.5}, "expect": "send"}
+{"id": "mc-09", "band": "sampling-ok", "model": "@cf/qwen/qwen2.5-coder-32b-instruct", "requested": {"temperature": 0.3}, "expect": "send"}
+{"id": "mc-10", "band": "no-param", "model": "claude-opus-5", "requested": {}, "expect": "send"}
+{"id": "mc-11", "band": "no-param", "model": "claude-haiku-4-5", "requested": {}, "expect": "send"}
+{"id": "mc-12", "band": "no-param", "model": "@cf/meta/llama-3.3-70b-instruct-fp8-fast", "requested": {}, "expect": "send"}

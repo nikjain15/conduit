@@ -20,5 +20,11 @@ jobs:
         run: npx tsc --noEmit -p tsconfig.json
       - name: Test
         run: npx vitest run
+      # Runs above as part of the suite. Called out separately so a failing
+      # quality floor is legible in the CI log rather than buried among 200
+      # unit tests. Needs no API key: both golden sets score real shipped code
+      # offline. Floors and the measured baseline are in evals/README.md.
+      - name: Eval gate
+        run: npx vitest run evals
       - name: Build console
         run: npm run build --workspace @conduit/console
