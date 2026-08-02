@@ -5,6 +5,16 @@ here name the file that backs them.
 
 ## Trust boundaries
 
+**Read this first: the guardrail engine is not on any request path today.**
+`runGuardrails` is called only by its own tests, its README example, and the
+offline eval harness. The gateway and `resolve()` do not import it. So the
+screening described below is a capability this repo ships and a caller must wire,
+not a protection any live request currently receives. Corrected 2026-08-02 after
+a review found the earlier wording claimed enforcement that does not exist. The
+fix is to call it inside `resolve()`, which every request already passes through.
+
+What follows describes what the engine does when it is called.
+
 Outside text enters through the input a caller passes to `runGuardrails` and
 through tool results returned into the agent loop. Neither is trusted.
 
@@ -16,10 +26,13 @@ through tool results returned into the agent loop. Neither is trusted.
 - **What this is not.** The module says so itself: it is a heuristic pattern
   screen, not a model and not a guarantee. It catches the common shapes of an
   attack. A novel phrasing that avoids the patterns passes.
-- **Open gap.** External text is screened but not structurally separated. There
-  is no wrapper that labels fetched or tool returned content as untrusted data
-  before it reaches the model, so the screen is the only line. Adding an
-  untrusted data envelope at the boundary is the next safety change worth making.
+- **Open gap, two of them.** External text is screened but not structurally
+  separated: nothing labels fetched or tool returned content as untrusted data
+  before it reaches the model. Worse, in `packages/agent/src/loop.ts` a tool
+  result re-enters the transcript as an ordinary turn and is never screened at
+  all, so a document fetched by a tool can carry instructions straight into the
+  next model call. An untrusted data envelope at that boundary is the single
+  most valuable safety change left.
 
 ## Tool limits
 
@@ -37,6 +50,7 @@ asked about.
 
 ## Guardrail decisions
 
+Again: this engine is not currently invoked by any request path. When called,
 `packages/guardrails/src/engine.ts` returns one of allow, redact, block, or
 escalate, combining signals fail closed so the most severe outcome wins. A
 mandatory floor whose eval key did not run blocks, because a floor that did not

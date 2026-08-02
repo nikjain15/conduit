@@ -30,6 +30,23 @@ a latency comparison against a direct SDK call belongs in the same run.
 
 ## Open gaps, recorded rather than hidden
 
+**The guardrail floor is not wired to any request path.** Found 2026-08-02 by an
+architecture review. `runGuardrails` has three callers: its own tests, its README
+example, and the offline eval harness. Neither the gateway handler nor `resolve()`
+imports guardrails, so no live request is screened.
+
+This is the most important correction in this document, because ADR-0001 and
+SAFETY.md were both written a day earlier describing the floor as enforced. They
+described the engine's semantics accurately and never checked its call sites. Both
+have been corrected in place with the error recorded rather than edited away.
+
+The lesson generalises and is worth keeping: reading what a module does is not
+evidence that anything calls it. Grep for call sites before writing "enforced".
+
+Fix: call `runGuardrails` inside `resolve()`, the one path every request already
+takes, so a profile carrying guardrail config is screened without the caller
+remembering anything.
+
 **Sampling parameters are not gated by model.** `packages/inference/src/core.ts`
 forwards any caller supplied `temperature` to every model without consulting the
 catalog, while the README states the core only sends a sampling param to a model
