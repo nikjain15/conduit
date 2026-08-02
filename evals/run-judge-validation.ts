@@ -50,11 +50,25 @@ export const FAITHFULNESS_CRITERIA =
   "contradicts the source or does not appear in it. Do NOT consider whether the " +
   "answer is helpful or on-topic; an unhelpful but fully supported answer passes.";
 
+/**
+ * Relevance is judged WITHOUT the source document, deliberately.
+ *
+ * v1 of this rubric passed the source in and told the judge to ignore
+ * correctness. Measured on 2026-08-02 that scored kappa 0.13: it rejected the
+ * on-topic-but-factually-wrong cases anyway, because a judge holding a document
+ * cannot resist checking the answer against it. Telling a model not to use
+ * information you have just handed it does not work.
+ *
+ * v2 removes the temptation instead of instructing against it, which is also how
+ * RAGAS computes answer relevancy: from the question and the answer alone.
+ */
 export const RELEVANCE_CRITERIA =
-  "You are checking RELEVANCE only. Answer pass=true if the answer addresses the " +
-  "question that was asked. Answer pass=false if the answer discusses something " +
-  "else, however accurate it may be. Do NOT consider whether the answer is " +
-  "factually correct or supported by the source; a wrong but on-topic answer passes.";
+  "You are checking RELEVANCE only, and you have deliberately not been shown any " +
+  "source material. Answer pass=true if the answer is ON TOPIC for the question, " +
+  "meaning it attempts to address what was asked. Answer pass=false only if it " +
+  "discusses a different subject. You cannot verify facts here and must not try: " +
+  "an answer containing wrong figures is still on topic and passes. Judge subject " +
+  "matter only.";
 
 /** Anthropic call. Omits sampling params for models the catalog says reject
  *  them, so a reasoning-tier judge does not fail with an opaque HTTP 400. */
@@ -95,14 +109,18 @@ async function gradeDimension(
   model: string,
   apiKey: string,
   goldOf: (c: JudgeCase) => boolean,
+  withSource: boolean,
 ): Promise<Comparison[]> {
   const check = llmJudgeCheck<JudgeCase, unknown, string>({
     modelCall: (req) => callAnthropic(model, req, apiKey),
     criteria,
-    // The judge sees the source and the question together, mirroring how a
-    // grounded answer is judged in production.
+    // Faithfulness needs the source to check against. Relevance deliberately
+    // does NOT get it: see RELEVANCE_CRITERIA for the measurement that forced
+    // that change.
     toQuestion: (testCase) =>
-      `SOURCE:\n${testCase.input.source}\n\nQUESTION:\n${testCase.input.question}`,
+      withSource
+        ? `SOURCE:\n${testCase.input.source}\n\nQUESTION:\n${testCase.input.question}`
+        : `QUESTION:\n${testCase.input.question}`,
     toAnswer: (output) => output,
   });
 
@@ -121,10 +139,10 @@ export async function validateModel(
   apiKey: string,
 ): Promise<ModelReport> {
   const faith = await gradeDimension(
-    cases, FAITHFULNESS_CRITERIA, model, apiKey, (c) => c.gold.faithful,
+    cases, FAITHFULNESS_CRITERIA, model, apiKey, (c) => c.gold.faithful, true,
   );
   const rel = await gradeDimension(
-    cases, RELEVANCE_CRITERIA, model, apiKey, (c) => c.gold.relevant,
+    cases, RELEVANCE_CRITERIA, model, apiKey, (c) => c.gold.relevant, false,
   );
   return {
     model,
