@@ -121,9 +121,38 @@ free test in `judge-validation.test.ts` holds any recorded number to its floor o
 every pull request, and checks the set stays balanced and large enough to be
 worth measuring against.
 
-**Current state: not yet measured.** `results/judge-validation.json` is a
-placeholder with an empty `reports` array. No claim about this judge's accuracy
-is supported until that file carries a real run.
+### Measured, 2026-08-02
+
+| Judge model | Groundedness | Relevance |
+|---|---|---|
+| `claude-haiku-4-5` | kappa 0.00, agreement 46.7% | kappa 0.00, agreement 50.0% |
+| `claude-sonnet-5` | **kappa 0.93, agreement 96.7%** | kappa 0.13, agreement 56.7% |
+
+Base rates: 53.3 percent faithful, 50.0 percent relevant.
+
+**The cheap model is not a judge.** `claude-haiku-4-5` returns fail on all 30
+cases, on both dimensions. That scores a perfect catch rate on bad answers and a
+zero catch rate on good ones, and its 46.7 percent agreement is BELOW the 53.3
+percent base rate, so it performs worse than a judge that blindly passes
+everything. Reading only "caught 100 percent of ungrounded answers" would have
+made it look excellent. This is exactly the failure raw agreement hides and
+kappa exposes.
+
+**Groundedness judging is validated.** `claude-sonnet-5` reaches kappa 0.93,
+almost perfect on the Landis and Koch scale, missing one case out of 30 and
+raising no false alarms. Conduit claims this pair and holds it to the floor.
+
+**Relevance judging is NOT validated and must not gate output.** At kappa 0.13
+the strong model is barely above chance: it correctly rejects 80 percent of
+off-topic answers, but wrongly rejects 10 of the 15 genuinely on-topic ones. As a
+gate it would refuse two thirds of good answers. The likely cause is that the
+judge still weighs factual support when asked to weigh only topicality, so the
+next step is tuning `RELEVANCE_CRITERIA` and re-measuring, not shipping it.
+
+**What is enforced.** `results/judge-validation.json` carries an `enforced` list,
+and only pairs on it are held to the kappa floor. A pair missing from that list
+is not exempt, it is unvalidated, and no document may describe it as a working
+judge. Today the list holds exactly one entry: sonnet on groundedness.
 
 ## Growing the sets
 

@@ -10,7 +10,7 @@ import { describe, it, expect } from "vitest";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { agreementStats, kappaBand, passesFloor } from "./judge-metrics.ts";
+import { agreementStats, enforcedFailures, kappaBand } from "./judge-metrics.ts";
 import { loadCases, type JudgeCase } from "./run-judge-validation.ts";
 import type { ValidationResults } from "./judge-metrics.ts";
 
@@ -104,18 +104,27 @@ describe("agreement metrics", () => {
 });
 
 describe("recorded validation result", () => {
-  it("either has never been run, or clears its floor on every model", () => {
-    if (!existsSync(RESULTS_PATH)) return;
-    const results = JSON.parse(readFileSync(RESULTS_PATH, "utf8")) as ValidationResults;
-    if (results.reports.length === 0) return; // placeholder: not yet run
+  const results = existsSync(RESULTS_PATH)
+    ? (JSON.parse(readFileSync(RESULTS_PATH, "utf8")) as ValidationResults)
+    : undefined;
+  const measured = results !== undefined && results.reports.length > 0;
 
-    expect(results.cases).toBe(CASES.length);
-    for (const report of results.reports) {
-      expect(
-        passesFloor(report, results.kappaFloor),
-        `${report.model}: faithfulness kappa ${report.faithfulness.kappa.toFixed(2)}, ` +
-          `relevance kappa ${report.relevance.kappa.toFixed(2)}, floor ${results.kappaFloor}`,
-      ).toBe(true);
-    }
+  it("was measured against the current set, not an older one", () => {
+    if (!measured) return;
+    expect(results!.cases).toBe(CASES.length);
+  });
+
+  it("backs every claim it makes: each enforced pair clears the floor", () => {
+    if (!measured) return;
+    const failures = enforcedFailures(results!);
+    expect(failures, failures.join("; ")).toEqual([]);
+  });
+
+  it("claims something, so the judge is not silently unvalidated everywhere", () => {
+    if (!measured) return;
+    // A results file with an empty `enforced` list would pass the check above
+    // trivially while claiming nothing is validated. That is honest but useless,
+    // and it must be a visible decision rather than a quiet default.
+    expect(results!.enforced.length).toBeGreaterThan(0);
   });
 });

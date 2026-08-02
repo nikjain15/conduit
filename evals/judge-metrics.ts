@@ -113,19 +113,56 @@ export interface ModelReport {
   costUsd?: number;
 }
 
+export type Dimension = "faithfulness" | "relevance";
+
+/**
+ * One (model, dimension) pair Conduit actually relies on in production, and
+ * therefore holds to the floor.
+ *
+ * Every model measured is recorded, but only what is claimed is enforced. That
+ * distinction is deliberate and runs the strict way: a pair NOT listed here is
+ * not "exempt", it is UNVALIDATED, and an unvalidated pair must not gate live
+ * output. Adding a pair here is a claim that the measurement backs it.
+ */
+export interface EnforcedPair {
+  model: string;
+  dimension: Dimension;
+}
+
 export interface ValidationResults {
   /** ISO date of the run. A stale result is a stale claim. */
   ran: string;
   datasetVersion: string;
   cases: number;
   reports: ModelReport[];
-  /** Floor both dimensions must clear for the judge to be considered validated. */
+  /** Kappa an enforced pair must clear. */
   kappaFloor: number;
+  /** What this repo claims is validated. Anything absent is unvalidated. */
+  enforced: EnforcedPair[];
   notes?: string;
 }
 
-/** A model passes validation only if BOTH dimensions clear the floor. A judge
- *  that grades groundedness well and relevance at chance is not validated. */
-export function passesFloor(report: ModelReport, floor: number): boolean {
-  return report.faithfulness.kappa >= floor && report.relevance.kappa >= floor;
+/** True when this model and dimension clear the floor. */
+export function clearsFloor(report: ModelReport, dimension: Dimension, floor: number): boolean {
+  return report[dimension].kappa >= floor;
+}
+
+/** Every enforced pair that does not clear the floor, described for an error
+ *  message. Empty means every claim the repo makes is backed by the numbers. */
+export function enforcedFailures(results: ValidationResults): string[] {
+  const out: string[] = [];
+  for (const pair of results.enforced) {
+    const report = results.reports.find((r) => r.model === pair.model);
+    if (!report) {
+      out.push(`${pair.model}: claimed validated for ${pair.dimension} but never measured`);
+      continue;
+    }
+    if (!clearsFloor(report, pair.dimension, results.kappaFloor)) {
+      out.push(
+        `${pair.model} ${pair.dimension}: kappa ${report[pair.dimension].kappa.toFixed(3)} ` +
+          `is below the floor ${results.kappaFloor}`,
+      );
+    }
+  }
+  return out;
 }

@@ -58,11 +58,19 @@ two standard dimensions (faithfulness and relevance) separately. The runner
 drives the shipped judge, not a copy, and reports Cohen's kappa against a 0.6
 floor alongside the base rate and both per-class rates.
 
-What is still open is the run itself: `evals/results/judge-validation.json` is a
-placeholder with an empty `reports` array, so no claim about judge accuracy is
-supported yet. Running it needs an ANTHROPIC_API_KEY, and the workflow at
-`.github/workflows/judge-validation.yml` will do it on judge-touching pull
-requests and weekly once that secret is set.
+Measured 2026-08-02. Groundedness judging with `claude-sonnet-5` reaches kappa
+0.93 and is validated. Two things are not, and both were invisible before the
+measurement existed:
+
+`claude-haiku-4-5` is unusable as a judge. It fails every case on both
+dimensions, giving a flawless catch rate on bad answers and none on good ones,
+with agreement below the base rate. Any cost saving from a cheap judge is
+unavailable at current quality.
+
+Relevance judging sits near chance (kappa 0.13) even on the strong model, which
+would refuse two thirds of genuinely on-topic answers if used as a gate. It is
+therefore not enforced and not permitted to gate output. Next step is tuning
+`RELEVANCE_CRITERIA` and re-measuring rather than shipping it.
 
 **No cost per use case at volume.** The core records cost per decision and the
 console charts it, so the mechanism is there. No document states what a given use

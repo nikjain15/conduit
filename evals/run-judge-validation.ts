@@ -25,6 +25,7 @@ import { loadJsonl } from "./harness.ts";
 import {
   agreementStats,
   type Comparison,
+  type EnforcedPair,
   type ModelReport,
   type ValidationResults,
 } from "./judge-metrics.ts";
@@ -141,6 +142,7 @@ export function buildResults(
   cases: number,
   ran: string,
   kappaFloor: number,
+  enforced: EnforcedPair[],
 ): ValidationResults {
   return {
     ran,
@@ -148,6 +150,7 @@ export function buildResults(
     cases,
     reports,
     kappaFloor,
+    enforced,
     notes:
       "Labels are decidable from the source text, not opinion. Set is class " +
       "balanced 15/15 on both dimensions, so an always-pass judge scores 0.50 " +

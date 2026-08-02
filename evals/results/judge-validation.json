@@ -1,8 +1,38 @@
 {
-  "ran": "never",
+  "ran": "2026-08-02",
   "datasetVersion": "v1",
   "cases": 30,
-  "reports": [],
   "kappaFloor": 0.6,
-  "notes": "Placeholder. The judge has NOT been validated yet. Run ANTHROPIC_API_KEY=... npx vitest run evals/judge-validation.live.test.ts to replace this with a real measurement. Until reports is non-empty, no claim about judge accuracy is supported."
+  "enforced": [
+    { "model": "claude-sonnet-5", "dimension": "faithfulness" }
+  ],
+  "reports": [
+    {
+      "model": "claude-haiku-4-5",
+      "faithfulness": {
+        "n": 30, "tp": 0, "fn": 16, "fp": 0, "tn": 14,
+        "agreement": 0.4667, "baseRate": 0.5333, "kappa": 0,
+        "truePositiveRate": 0, "trueNegativeRate": 1
+      },
+      "relevance": {
+        "n": 30, "tp": 0, "fn": 15, "fp": 0, "tn": 15,
+        "agreement": 0.5, "baseRate": 0.5, "kappa": 0,
+        "truePositiveRate": 0, "trueNegativeRate": 1
+      }
+    },
+    {
+      "model": "claude-sonnet-5",
+      "faithfulness": {
+        "n": 30, "tp": 15, "fn": 1, "fp": 0, "tn": 14,
+        "agreement": 0.9667, "baseRate": 0.5333, "kappa": 0.9333,
+        "truePositiveRate": 0.9375, "trueNegativeRate": 1
+      },
+      "relevance": {
+        "n": 30, "tp": 5, "fn": 10, "fp": 3, "tn": 12,
+        "agreement": 0.5667, "baseRate": 0.5, "kappa": 0.1333,
+        "truePositiveRate": 0.3333, "trueNegativeRate": 0.8
+      }
+    }
+  ],
+  "notes": "First real measurement. claude-sonnet-5 judges groundedness at kappa 0.93 and is validated for that use. Nothing else here is validated: claude-haiku-4-5 rejects every answer on both dimensions (kappa 0, agreement below the base rate), and relevance judging sits near chance on both models. Relevance must not be used as a gate until the rubric is tuned and re-measured. Labels are decidable from the source; set is class balanced so an always-pass judge scores kappa 0."
 }
