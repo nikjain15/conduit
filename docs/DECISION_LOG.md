@@ -80,6 +80,69 @@ existing and being empty.
 **No dependency audit in CI.** Typecheck, tests, and a console build gate every
 pull request. Nothing scans dependencies or secrets.
 
+## What the simulated stakeholder reviews changed, 2026-08-02
+
+Three adversarial reviews (architecture, security and privacy, adoption) were run
+against this repository on 2026-08-02. They were **simulated**: one person role
+playing three reviewers against their own code. No external party reviewed or
+approved anything. Full findings and ranks are in `docs/STAKEHOLDERS.md`.
+
+No source file was changed by the reviews. What changed is what is written down.
+
+**Changed: the guardrail floor is now recorded as unenforced on the request
+path.** This is the P0 and it was not written down anywhere before.
+`runGuardrails` has two callers in the tree, `packages/guardrails/test/engine.test.ts`
+and `evals/harness.ts:64`, both test infrastructure. `handleInfer`
+(`services/gateway/src/handlers.ts:53`) and `resolve()`
+(`packages/inference/src/core.ts:669`) do not call it. `README.md:76` and
+`docs/adr/ADR-0001` describe a mandatory floor. What ships is a library function
+an integrator has to remember to call, which by the ADR's own argument is weaker
+than the per call opt out the ADR rejected. Closing it means calling
+`runGuardrails` inside `handleInfer` on both the input and the answer, with a test
+that an injection input never reaches `deps.infer`. Open.
+
+**Changed: the published packages do not resolve.** `packages/evals/src/methods.ts:17-19`,
+`judgeCheck.ts:16-17`, `gate.ts:21-22`, `packages/agent/src/loop.ts:19` and
+`services/gateway/src/mcp.ts:14` import across workspace boundaries by relative
+path, while each package packs only its own `src`. `PUBLISHING.md` therefore
+describes a publish that would produce broken tarballs, and its stated publish
+order calls `agent` internally dependency free, which `loop.ts:19` contradicts.
+Fixing it means workspace specifiers plus the missing dependency entries. Open,
+and it moves ahead of publishing in priority.
+
+**Changed: deletion is missing from the interface, not just the implementation.**
+The earlier entry recorded that no deletion path exists. The review found the
+sharper version: `DecisionStore` (`services/gateway/src/types.ts:164`) exposes only
+`append` and `query`, so a durable backend has nowhere to hang a delete even if it
+wanted one, while `resolve()` stores full prompt content by default
+(`core.ts:716`). Open.
+
+**Changed: the tests badge is wrong.** `README.md:7` claims 213 passing; the suite
+reports 235 passed and 1 skipped. Small, but a hand maintained number on a project
+whose pitch is honest measurement. Open.
+
+**Defended: no token budget in the agent loop.** Every model call flows through the
+injected `callModel` (`packages/agent/src/loop.ts:34`), where the caller already
+holds usage numbers, so a budget in the loop would duplicate accounting
+`resolve()` already does. This is defended only while the caller is the app. It
+stops holding the day the loop is driven through the gateway.
+
+**Defended: narrow PII masking.** `packages/guardrails/src/redact.ts` deliberately
+mirrors `pii_scan` so the engine and the eval gate cannot disagree about what
+counts as PII. Widening it with name and address heuristics would import the same
+over blocking failure the injection screen already has at 25 percent. The fix is
+to state the three covered shapes in the README, not to guess at names.
+
+**Defended: not publishing to npm yet.** Publishing before the import paths are
+fixed would ship packages that do not resolve, and before a versioning policy
+exists it would create compatibility promises nobody has defined. Cloning is an
+honest install story for a pre adoption project, and the README should say that
+plainly instead of implying a registry install works.
+
+**Defended: the order of the sampling parameter fix.** Still open, still a real
+defect, still deliberately unfixed until the eval that catches it has been seen
+failing against it.
+
 ## Scope cuts
 
 - **The gateway is built and not operated.** Auth, tenant isolation and metering
