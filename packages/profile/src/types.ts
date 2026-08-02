@@ -70,6 +70,15 @@ export interface GuardrailsConfig {
   hitlThreshold?: number;
   /** Named non negotiable floors that always apply. */
   floors?: string[];
+  /**
+   * What happens to a request the engine decides to refuse.
+   *
+   * "refuse" (the default) returns a refusal. "review" turns the refusal into an
+   * escalation: the answer is still withheld, but the request routes to a human
+   * instead of dying. Exists because a wrongly blocked request otherwise has no
+   * recovery path short of editing the pattern set and redeploying.
+   */
+  blockedRequestAction?: "refuse" | "review";
 }
 
 /** When an eval runs relative to a live request. */

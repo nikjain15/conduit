@@ -1,27 +1,41 @@
 # ADR-0001: guardrails are a mandatory floor, not a per call option
 
 Date: 2026-08-01
-Status: accepted in principle, NOT IMPLEMENTED on any request path
+Status: accepted, and implemented on the request path since 2026-08-02
 
-## Correction, 2026-08-02
+## Two corrections, both kept
 
-This ADR as first written was wrong about the present tense, and the error is
-recorded rather than quietly edited.
+**2026-08-02, morning. This ADR was wrong about the present tense.** As first
+written it described the floor as in force. `runGuardrails` had three callers:
+its own unit tests, its README example, and the offline eval harness. Neither
+`services/gateway/src/handlers.ts` nor `resolve()` imported guardrails at all, so
+no live request passed through the engine.
 
-`runGuardrails` is called by its own unit tests, its README example, and the
-offline eval harness. Nothing else. `services/gateway/src/handlers.ts` and
-`resolve()` in `packages/inference/src/core.ts` never import guardrails at all,
-so no live request passes through the engine today.
+That inverted this ADR's own argument. It rejected a per call opt out on the
+grounds that an option which exists is an option that gets used. A floor a caller
+must remember to wire is weaker still: it is an opt IN, and the default is no
+protection.
 
-That inverts this ADR's own argument. It rejected a per call opt out on the
-grounds that an option which exists is an option that gets used. A floor a
-caller must remember to wire is weaker still: it is an opt IN, and the default
-is no protection. The decision below stands as the intended design. The claim
-that it is in force did not, and the wording has been corrected throughout.
+**2026-08-02, same day. Fixed.** `resolve()` in
+`packages/inference/src/core.ts` now calls `runGuardrails` directly: the
+injection screen before the provider call, then PII, the output schema, the
+confidence threshold and the mandatory floors after it. A refusal returns a typed
+`ResolveResult` carrying the phase, the action and the pattern that fired, rather
+than throwing. `packages/inference/test/guardrail-floor.test.ts` proves it
+through the shipped entry point rather than by calling the engine directly, which
+is the only kind of test that would have caught the original error.
 
-The fix is to call `runGuardrails` inside the one path every request already
-takes, `resolve()`, so a use case profile carrying guardrail config gets them
-without the caller doing anything.
+**What is still true and should not be overclaimed.** `ResolveTask.guardrails` is
+optional. A task without it behaves exactly as it did before, which is what let
+this land without breaking a caller, and it means the floor covers every use case
+whose profile carries the config rather than every request in the system. That is
+a weaker statement than "enforced", and it is the accurate one. Making the field
+required is a separate, breaking change.
+
+The cost of the import is recorded too: `core.ts` was written with no internal
+imports so it could be bundled for Workers, Deno and Node without extension
+conflicts. It now has exactly one. That was judged worth it, because the
+alternative is the opt in this ADR exists to reject.
 
 ## Context
 
@@ -37,17 +51,17 @@ engineered and you should just call the provider SDK directly.
 
 ## Decision
 
-Guardrails are intended as a floor enforced by the engine rather than a per
-call option. The engine implements this: `runGuardrails` combines every enabled
+Guardrails are a floor enforced by the engine rather than a per call option, and
+`resolve()` is where the engine is called. The engine implements the combining: `runGuardrails` combines every enabled
 signal fail closed, the most severe
 outcome wins in the order block, escalate, redact, allow, and a mandatory floor
 whose eval key did not run blocks rather than passes.
 
-The same posture DOES hold in the agent loop, and that one is genuinely wired:
-`packages/agent/src/loop.ts` refuses a tool marked `sideEffecting` unless the run
+The same posture holds in the agent loop, which was wired first and is still the
+clearest example: `packages/agent/src/loop.ts` refuses a tool marked `sideEffecting` unless the run
 is invoked with `allowSideEffects: true`. Default deny, enforced in the shipped
-loop rather than in a module a caller may forget. It is the working example of
-what this ADR intends for guardrails.
+loop rather than in a module a caller may forget. It was the working example of
+what this ADR intended for guardrails, and it stayed the only one for a day.
 
 ## Alternatives rejected
 
@@ -73,24 +87,28 @@ the use case profile rather than pass a flag, which is deliberate friction.
 
 **False blocks, and this is the real cost.** The injection screen is a
 deterministic pattern set, and patterns over natural language over fire. Measured
-on the golden set, the guard catches every attack (recall 1.00) and wrongly
-refuses four of sixteen safe business inputs (precision 0.83, false block rate
-0.25). A doc section named "Developer Mode", the phrase "you are now looking at
-the Q3 figures", and a reply telling a customer we cannot bypass their
-restrictions are all currently blocked.
+on the golden set at 2026-08-01: recall 1.00, precision 0.83, false block rate
+0.25, four of sixteen safe business inputs refused. After requiring a second
+signal before refusing on `developer_mode` or `role_override`, measured again at
+2026-08-02 over 42 cases: recall 1.00, precision 0.92, false block rate 0.11. Two
+false blocks remain, both firing strong patterns that must keep refusing alone.
 
-**There is no recovery path for a wrongly blocked request.** The engine can
-escalate to a human, but escalation is driven by a low confidence signal, and
-block outranks escalate in the severity order. So a false block is terminal for
-that request: the user is refused and the only fix is changing the rule and
-redeploying. This is a genuine hole in the decision, recorded here rather than
-argued away. See `docs/SAFETY.md` for the intended fix.
+**A wrongly blocked request now has a recovery path, per use case.**
+`guardrails.blockedRequestAction: "review"` turns a refusal into an escalation:
+the answer is still withheld and the floor still ran, but the request reaches a
+human instead of dying. Default is "refuse", so the floor is not lowered by
+existing. Before this, a false block was terminal and the only fix was changing
+the rule and redeploying.
 
 ## What would change our mind
 
 - The false block rate stays above 0.10 after the pattern set is tightened. At
   that point the guard is costing more user trust than it is buying safety, and
   a screen that escalates rather than blocks becomes the better design.
+  **Status: 0.11 as of 2026-08-02.** Tightening moved it from 0.25 and left it
+  just above the line rather than under it. The line has not been crossed and it
+  has not been cleared either; the next measurement decides. Recorded here
+  because a threshold you only check when it flatters you is not a threshold.
 - A product embedding Conduit needs a legitimate per call exemption that cannot
   be expressed as a use case profile. That would mean the profile abstraction is
   wrong, not that the floor is wrong.

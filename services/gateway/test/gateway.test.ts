@@ -6,7 +6,12 @@
 import { describe, it, expect } from "vitest";
 import { route } from "../src/router";
 import { buildGatewayTools } from "../src/mcp";
-import { InMemoryDecisionStore } from "../src/metering";
+import {
+  InMemoryDecisionStore,
+  DEFAULT_RETENTION,
+  retentionCutoffs,
+  applyRetention,
+} from "../src/metering";
 import type { CatalogModel } from "@conduit/catalog";
 import type {
   App,
@@ -576,5 +581,65 @@ describe("GET /v1/models", () => {
     // The catalog came only from the injected source; nothing in the body
     // changed the result.
     expect(body.models.map((m) => m.ref)).toContain("openrouter/cheap");
+  });
+});
+
+/**
+ * Retention and deletion.
+ *
+ * These exist because "there is no retention window and no deletion path" was a
+ * true statement about this store until 2026-08-02. A written policy with no
+ * code behind it is a promise; these tests are what make it a property.
+ */
+describe("retention", () => {
+  const DAY = 86_400_000;
+  const now = 1_800_000_000_000;
+
+  function seeded(): InMemoryDecisionStore {
+    const store = new InMemoryDecisionStore();
+    const row = (tenant: string, at: number): Decision => ({
+      tenant,
+      app: "founderfirst",
+      useCase: "chat",
+      model: "claude-haiku-4-5",
+      costUsd: 0.001,
+      latencyMs: 100,
+      at,
+    });
+    store.append(row("tenant-a", now - 10 * DAY));
+    store.append(row("tenant-a", now - 500 * DAY));
+    store.append(row("tenant-b", now - 401 * DAY));
+    store.append(row("tenant-b", now - DAY));
+    return store;
+  }
+
+  it("states a window and enforces it", () => {
+    const store = seeded();
+    const cutoffs = retentionCutoffs(now, DEFAULT_RETENTION);
+    expect(DEFAULT_RETENTION.decisionDays).toBe(400);
+    expect(cutoffs.decisions).toBe(now - 400 * DAY);
+
+    const deleted = store.purge(cutoffs.decisions);
+    expect(deleted).toBe(2);
+    expect(store.query("tenant-a")).toHaveLength(1);
+    expect(store.query("tenant-b")).toHaveLength(1);
+  });
+
+  it("applyRetention purges with the policy's own cutoff", async () => {
+    const store = seeded();
+    expect(await applyRetention(store, now)).toBe(2);
+    // Running it twice deletes nothing more: purging is idempotent.
+    expect(await applyRetention(store, now)).toBe(0);
+  });
+
+  it("deletes one tenant completely and leaves the others alone", () => {
+    const store = seeded();
+    expect(store.deleteTenant("tenant-a")).toBe(2);
+    expect(store.query("tenant-a")).toEqual([]);
+    expect(store.query("tenant-b")).toHaveLength(2);
+  });
+
+  it("deleting a tenant that was never seen is not an error", () => {
+    expect(new InMemoryDecisionStore().deleteTenant("nobody")).toBe(0);
   });
 });

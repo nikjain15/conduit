@@ -13,9 +13,24 @@
  * run is invoked with `allowSideEffects: true`. Default deny. A refusal is fed back
  * as an observation (the model can pick a read-only path) and is NOT an exception.
  *
+ * Untrusted tool results: a tool result is text the loop did not write. It may be a
+ * page someone else controls. Until 2026-08-02 it re-entered the transcript as an
+ * ordinary user turn and was never screened, so a fetched document could carry
+ * "ignore your instructions" straight into the next model call, indistinguishable
+ * from the operator's own words. Now every result is screened by the injection
+ * scanner and, if it survives, wrapped in a labelled untrusted-data envelope
+ * (`@conduit/guardrails`). A result that fails the screen is withheld entirely and
+ * the model is told the source was refused, so it neither sees the payload nor
+ * invents a replacement for it.
+ *
+ * The envelope is a label, not a wall. See untrusted.ts for what a delimiter is
+ * and is not worth. The invariant above is the part of this file that actually
+ * holds under a successful injection.
+ *
  * Termination: the loop returns when the model gives a final answer, or when
  * `maxSteps` model turns have been taken (a never-finishing model stops at the cap).
  */
+import { screenAndWrapUntrusted } from "../../guardrails/src/untrusted.ts";
 import type { ChatMessage } from "../../inference/src/core";
 import { validate, type ValidationError } from "./schema";
 import { selectSkills, type Skill, type SkillContext } from "./skill";
@@ -48,13 +63,18 @@ export type AgentErrorKind =
   | "unknown_tool"
   | "invalid_args"
   | "side_effect_refused"
-  | "handler_error";
+  | "handler_error"
+  /** The tool ran, and its result carried prompt-injection patterns. The result
+   *  was withheld from the model rather than enveloped. */
+  | "untrusted_content_refused";
 
 export interface AgentError {
   kind: AgentErrorKind;
   message: string;
   /** Present for invalid_args: the schema validation failures. */
   validation?: ValidationError[];
+  /** Present for untrusted_content_refused: the injection labels that fired. */
+  patterns?: string[];
 }
 
 export interface RunAgentInput {
@@ -69,6 +89,9 @@ export interface RunAgentInput {
   system?: string;
   /** No-authority override: side-effecting tools only run when this is true. */
   allowSideEffects?: boolean;
+  /** Fixed envelope nonce. Tests only: in a real run the nonce must be
+   *  unpredictable so tool output cannot forge the closing marker. */
+  untrustedNonce?: string;
 }
 
 export interface RunAgentResult {
@@ -108,6 +131,7 @@ export async function runAgent(input: RunAgentInput): Promise<RunAgentResult> {
     context,
     system = DEFAULT_SYSTEM,
     allowSideEffects = false,
+    untrustedNonce,
   } = input;
 
   const skillCtx: SkillContext = { goal, context };
@@ -176,8 +200,29 @@ export async function runAgent(input: RunAgentInput): Promise<RunAgentResult> {
     // loop-level exception.
     try {
       const output = await tool.handler(args as Record<string, unknown>);
+      // The result is untrusted text: screen it, then envelope what survives.
+      // Nothing a tool returns enters the transcript unlabelled.
+      const screened = screenAndWrapUntrusted(
+        observation({ result: output }),
+        { kind: "tool_result", name },
+        { nonce: untrustedNonce },
+      );
+      if (screened.blocked) {
+        const error: AgentError = {
+          kind: "untrusted_content_refused",
+          message:
+            `the result of "${name}" carried prompt-injection patterns ` +
+            `(${screened.scan.labels.join(", ")}) and was withheld from the model`,
+          patterns: screened.scan.labels,
+        };
+        steps.push({ kind: "tool_error", tool: name, args, ok: false, error });
+        // The refusal notice is ours, so it goes in as an ordinary turn. The
+        // payload that caused it does not go in at all.
+        messages.push({ role: "user", content: screened.text });
+        continue;
+      }
       steps.push({ kind: "tool_call", tool: name, args, ok: true, result: output });
-      messages.push({ role: "user", content: observation({ result: output }) });
+      messages.push({ role: "user", content: screened.text });
     } catch (err) {
       const error: AgentError = {
         kind: "handler_error",

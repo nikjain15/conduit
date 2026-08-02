@@ -30,22 +30,31 @@ a latency comparison against a direct SDK call belongs in the same run.
 
 ## Open gaps, recorded rather than hidden
 
-**The guardrail floor is not wired to any request path.** Found 2026-08-02 by an
-architecture review. `runGuardrails` has three callers: its own tests, its README
-example, and the offline eval harness. Neither the gateway handler nor `resolve()`
-imports guardrails, so no live request is screened.
+**CLOSED 2026-08-02: the guardrail floor is now wired to the request path.** The
+entry below is kept in full, because the error it records is more useful than the
+fix.
 
-This is the most important correction in this document, because ADR-0001 and
-SAFETY.md were both written a day earlier describing the floor as enforced. They
-described the engine's semantics accurately and never checked its call sites. Both
-have been corrected in place with the error recorded rather than edited away.
+Found 2026-08-02 by an architecture review. `runGuardrails` had three callers:
+its own tests, its README example, and the offline eval harness. Neither the
+gateway handler nor `resolve()` imported guardrails, so no live request was
+screened, while ADR-0001 and SAFETY.md, both written a day earlier, described the
+floor as enforced. They described the engine's semantics accurately and never
+checked its call sites.
 
 The lesson generalises and is worth keeping: reading what a module does is not
 evidence that anything calls it. Grep for call sites before writing "enforced".
 
-Fix: call `runGuardrails` inside `resolve()`, the one path every request already
-takes, so a profile carrying guardrail config is screened without the caller
-remembering anything.
+Fixed the same day. `resolve()` calls `runGuardrails` in two phases: the
+injection screen before the provider call, so a refused request costs nothing,
+and PII, output schema, confidence and floors after it, because those read the
+answer. A refusal returns a typed `ResolveResult` with a status and the pattern
+that fired, rather than throwing. `packages/inference/test/guardrail-floor.test.ts`
+asserts it through the shipped entry point, not by calling the engine, which is
+the only kind of test that would have caught the original error.
+
+Still true and not overclaimed: `ResolveTask.guardrails` is optional, so the
+floor covers every use case whose profile carries the config rather than every
+request in the system. Making it required is a separate, breaking change.
 
 **Sampling parameters are not gated by model.** `packages/inference/src/core.ts`
 forwards any caller supplied `temperature` to every model without consulting the
@@ -63,10 +72,23 @@ the catalog entry before building the request body and dropping the param when
 the model rejects it. Deliberately not done in the same change as writing the
 eval, so the eval is seen to fail against the real defect first.
 
-**Guardrails over block one safe request in four.** Measured, not guessed:
-precision 0.83 and a false block rate of 0.25 on the golden set, against a recall
-of 1.00. A wrongly blocked request has no recovery path, because block outranks
-escalate in the severity order. Fix sequence in `docs/SAFETY.md`.
+**PARTLY CLOSED 2026-08-02: guardrails over blocked one safe request in four.**
+Measured, not guessed: precision 0.83 and a false block rate of 0.25 on the
+golden set, against a recall of 1.00, with no recovery path for a wrongly blocked
+request.
+
+All three fixes from `docs/SAFETY.md` shipped: refusals are recorded with the
+pattern that caused them, `developer_mode` and `role_override` need a second
+signal before refusing, and a use case can route a refusal to human review.
+Re-measured over 42 cases: precision 0.92, false block rate 0.11, recall
+unchanged at 1.00. CI floors moved to 0.90 and a 0.15 ceiling in the same commit
+as that run.
+
+Still open: two false blocks remain, both firing strong patterns that must keep
+refusing alone, and one of them is a reply *refusing* an unsafe action that the
+guard reads as asking for one. Telling those apart needs a model rather than a
+regex. ADR-0001 named 0.10 as the rate at which the design should change; 0.11 is
+just above it, and the next measurement decides.
 
 **The judge panel is not yet measured, but it is now measurable.**
 `evals/dataset/judge-validation.jsonl` holds 30 class balanced cases with labels
@@ -94,8 +116,19 @@ console charts it, so the mechanism is there. No document states what a given us
 case costs at expected volume, so `docs/COST.md` does not exist rather than
 existing and being empty.
 
-**No dependency audit in CI.** Typecheck, tests, and a console build gate every
-pull request. Nothing scans dependencies or secrets.
+**CLOSED 2026-08-02: no dependency audit in CI.** A `security` job now runs
+`npm audit` through `scripts/audit-check.mjs`, failing on any high or critical
+advisory that is not allowlisted, plus a secret scan over tracked files. Every
+allowlist entry carries a reason and an expiry, and the expiry is enforced in
+code and tested, so an aged out exception fails the build even on a clean audit.
+
+Two things this does not do, and the owner should know both. Dependabot is
+switched off for this repository, so nothing opens a pull request when an
+advisory lands between pushes; enabling it is a settings change only the owner
+can make. And four advisories are allowlisted today, all in the console's vite
+and vitest toolchain, expiring 2026-11-01: the fix is a major upgrade that hit a
+peer dependency conflict and is a migration of its own rather than a line in a
+security commit.
 
 ## What the simulated stakeholder reviews changed, 2026-08-02
 
@@ -104,7 +137,9 @@ against this repository on 2026-08-02. They were **simulated**: one person role
 playing three reviewers against their own code. No external party reviewed or
 approved anything. Full findings and ranks are in `docs/STAKEHOLDERS.md`.
 
-No source file was changed by the reviews. What changed is what is written down.
+No source file was changed by the reviews themselves. What changed first was what
+is written down; the code changes below followed the same day, in a second pass,
+and each entry says which.
 
 **Changed: the guardrail floor is now recorded as unenforced on the request
 path.** This is the P0 and it was not written down anywhere before.
@@ -112,11 +147,18 @@ path.** This is the P0 and it was not written down anywhere before.
 and `evals/harness.ts:64`, both test infrastructure. `handleInfer`
 (`services/gateway/src/handlers.ts:53`) and `resolve()`
 (`packages/inference/src/core.ts:669`) do not call it. `README.md:76` and
-`docs/adr/ADR-0001` describe a mandatory floor. What ships is a library function
-an integrator has to remember to call, which by the ADR's own argument is weaker
-than the per call opt out the ADR rejected. Closing it means calling
-`runGuardrails` inside `handleInfer` on both the input and the answer, with a test
-that an injection input never reaches `deps.infer`. Open.
+`docs/adr/ADR-0001` describe a mandatory floor. What shipped was a library
+function an integrator had to remember to call, which by the ADR's own argument is
+weaker than the per call opt out the ADR rejected.
+
+**Closed the same day, one level lower than the review proposed.** The review said
+call it inside `handleInfer`. It went into `resolve()` instead, because the
+gateway handler is one caller of the inference core and the apps that embed
+Conduit in process are the others; screening in the handler would have left the in
+process path unscreened. The gateway is covered either way, since the `infer` core
+it delegates to is `resolve()`. Test:
+`packages/inference/test/guardrail-floor.test.ts` asserts the provider is never
+reached on a refused input.
 
 **Changed: the published packages do not resolve.** `packages/evals/src/methods.ts:17-19`,
 `judgeCheck.ts:16-17`, `gate.ts:21-22`, `packages/agent/src/loop.ts:19` and
@@ -127,16 +169,24 @@ order calls `agent` internally dependency free, which `loop.ts:19` contradicts.
 Fixing it means workspace specifiers plus the missing dependency entries. Open,
 and it moves ahead of publishing in priority.
 
-**Changed: deletion is missing from the interface, not just the implementation.**
-The earlier entry recorded that no deletion path exists. The review found the
-sharper version: `DecisionStore` (`services/gateway/src/types.ts:164`) exposes only
-`append` and `query`, so a durable backend has nowhere to hang a delete even if it
-wanted one, while `resolve()` stores full prompt content by default
-(`core.ts:716`). Open.
+**Changed, then CLOSED 2026-08-02: deletion was missing from the interface, not
+just the implementation.** `DecisionStore` exposed only `append` and `query`, so
+a durable backend had nowhere to hang a delete even if it wanted one.
 
-**Changed: the tests badge is wrong.** `README.md:7` claims 213 passing; the suite
-reports 235 passed and 1 skipped. Small, but a hand maintained number on a project
-whose pitch is honest measurement. Open.
+`purge(before)` and `deleteTenant(tenant)` are now REQUIRED methods on the
+interface, both implemented and tested, with the retention windows per data type
+written down in `docs/RETENTION.md` and enforced by `applyRetention`.
+
+Deliberately not closed, and said plainly in that document: the 30 day content
+window is policy with no code behind it, because the gateway store holds no
+prompt or answer text and content lives in a store this repo does not own. Per
+user deletion inside a tenant is unsupported, because no row carries a user id
+and adding one has its own privacy cost.
+
+**Changed, then CLOSED 2026-08-02: the tests badge was wrong.** It claimed 213
+passing against a suite of 235. Now 275 passed and 1 skipped, and the badge and
+the layout section say 275. A hand maintained number on a project whose pitch is
+honest measurement is worth the thirty seconds.
 
 **Defended: no token budget in the agent loop.** Every model call flows through the
 injected `callModel` (`packages/agent/src/loop.ts:34`), where the caller already
@@ -147,8 +197,9 @@ stops holding the day the loop is driven through the gateway.
 **Defended: narrow PII masking.** `packages/guardrails/src/redact.ts` deliberately
 mirrors `pii_scan` so the engine and the eval gate cannot disagree about what
 counts as PII. Widening it with name and address heuristics would import the same
-over blocking failure the injection screen already has at 25 percent. The fix is
-to state the three covered shapes in the README, not to guess at names.
+over blocking failure the injection screen had at 25 percent, and still has at 11
+percent. The fix is to state the three covered shapes in the README, not to guess
+at names.
 
 **Defended: not publishing to npm yet.** Publishing before the import paths are
 fixed would ship packages that do not resolve, and before a versioning policy
@@ -159,6 +210,36 @@ plainly instead of implying a registry install works.
 **Defended: the order of the sampling parameter fix.** Still open, still a real
 defect, still deliberately unfixed until the eval that catches it has been seen
 failing against it.
+
+## Second pass, 2026-08-02: the safety gaps the reviews found
+
+Five changes, in the order they were worth doing. Each closed a gap that was
+written down above rather than one discovered while typing.
+
+1. **The guardrail floor runs on the request path.** Detail in the entry above.
+2. **Untrusted data envelope.** Tool results were re-entering the agent
+   transcript as ordinary turns, unscreened, so a fetched document could carry
+   instructions into the next model call. They are now screened by the injection
+   scanner and, if they survive, wrapped in a nonce-delimited envelope that
+   labels them as data (`packages/guardrails/src/untrusted.ts`). A result that
+   fails the screen is withheld and the model is told the source was refused, so
+   it neither sees the payload nor invents a replacement. The comments and
+   `docs/SAFETY.md` both say plainly that a delimiter is not a security boundary:
+   the layer that holds under a successful injection is the tool authority
+   invariant, not the label.
+3. **False block recovery.** Detail in the entry above.
+4. **Dependency and secret scanning in CI.** Detail in the entry above.
+5. **Retention, deletion, and an incident runbook.** `docs/RETENTION.md` states a
+   window per data type and names what enforces each one, including the one
+   nothing enforces. `docs/INCIDENT_RESPONSE.md` gives the rollback order for a
+   live bad prompt or model change, cheapest and most reversible first, and makes
+   the last step turning the incident into a permanent eval case that is watched
+   failing before the fix lands.
+
+What was deliberately not done in this pass: the sampling parameter gap, which
+stays open by choice (see above), and making `ResolveTask.guardrails` required,
+which is a breaking change and belongs in its own commit with its own callers
+updated.
 
 ## Scope cuts
 

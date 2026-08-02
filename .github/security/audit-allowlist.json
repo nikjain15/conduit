@@ -1,0 +1,45 @@
+{
+  "//": [
+    "Advisories the dependency audit is allowed to ignore, and only until the date",
+    "on each entry. Every field is required and every one is enforced by",
+    "scripts/audit-check.mjs:",
+    "",
+    "  id       the GHSA or CVE identifier, or the package name for an advisory",
+    "           that has neither.",
+    "  reason   why shipping with it is acceptable. 'not exploitable here' is not",
+    "           a reason; say which code path is or is not reached.",
+    "  expires  ISO date. ON AND AFTER THIS DATE THE BUILD FAILS, whether or not",
+    "           the advisory is still open. An allowlist that never expires is a",
+    "           permanent exception with a comment attached, which is how a known",
+    "           vulnerability becomes a forgotten one. Renewing an entry is a",
+    "           deliberate act with a fresh reason.",
+    "",
+    "Four entries today, all of them the same finding: the console's build and",
+    "test toolchain (vite 5, vitest 2) carries advisories that are only fixed by",
+    "moving to vite 7 and vitest 3. That upgrade hit a peer dependency conflict",
+    "with @vitejs/plugin-react and is a migration of its own, not a line in a",
+    "security commit. The expiry is deliberately short so it comes back."
+  ],
+  "allow": [
+    {
+      "id": "GHSA-5xrq-8626-4rwp",
+      "reason": "vitest UI server reads and executes arbitrary files. The UI server is never started: CI runs `vitest run` and no script in this repo passes --ui. Test tooling only, not reachable from any shipped package or from the gateway. Fix requires vitest 3.",
+      "expires": "2026-11-01"
+    },
+    {
+      "id": "GHSA-4w7w-66w2-5vf9",
+      "reason": "vite dev server path traversal in optimized deps .map handling. The dev server runs only on a developer machine via `npm run dev`; the console is shipped as a static build and no deployment serves vite. Fix requires vite 7.",
+      "expires": "2026-11-01"
+    },
+    {
+      "id": "GHSA-v6wh-96g9-6wx3",
+      "reason": "launch-editor NTLMv2 hash disclosure via UNC paths on Windows, reached only through the vite dev server error overlay. Same exposure as above: dev only, and no Windows developer or CI runner is in use. Fix requires vite 7.",
+      "expires": "2026-11-01"
+    },
+    {
+      "id": "GHSA-fx2h-pf6j-xcff",
+      "reason": "vite server.fs.deny bypass on Windows alternate paths. Dev server only, and nothing in this repo runs a vite server outside a developer machine. Fix requires vite 7.",
+      "expires": "2026-11-01"
+    }
+  ]
+}

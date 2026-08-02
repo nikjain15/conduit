@@ -15,5 +15,23 @@ export {
   type GuardrailDeps,
 } from "./engine.ts";
 
-export { scanInjection, type InjectionScan } from "./injection.ts";
+export { scanInjection, isBlockWorthy, WEAK_LABELS, type InjectionScan } from "./injection.ts";
 export { maskPii } from "./redact.ts";
+
+export {
+  recordBlockEvent,
+  blockLedgerSnapshot,
+  falseBlockRate,
+  resetBlockLedger,
+  type BlockEvent,
+  type BlockOutcome,
+  type BlockLedgerSnapshot,
+} from "./ledger.ts";
+
+export {
+  wrapUntrusted,
+  screenAndWrapUntrusted,
+  type UntrustedSource,
+  type EnvelopeOptions,
+  type ScreenedUntrusted,
+} from "./untrusted.ts";

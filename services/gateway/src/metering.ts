@@ -17,6 +17,7 @@ import type {
   Decision,
   DecisionQuery,
   DecisionStore,
+  RetentionPolicy,
   SloTarget,
   SuqsApp,
   SuqsResult,
@@ -144,10 +145,48 @@ export function parseWindow(window: string | null | undefined, now: number): num
   return now - n * unitMs;
 }
 
+/* ------------------------------- retention -------------------------------- */
+
+const DAY_MS = 86_400_000;
+
+/**
+ * The default retention windows. Written down here rather than left implicit,
+ * because "we keep it until someone asks" is a decision too, just an unexamined
+ * one. Every number is a trade the docs state:
+ *
+ *  - decisions, 400 days. Long enough that a year-over-year cost comparison has
+ *    two data points, short enough that the store is not a permanent archive.
+ *  - refusal causes, 400 days, matching decisions so the false block rate can be
+ *    computed over the same window as everything else. These rows hold pattern
+ *    labels and no request content, so the window is cheap.
+ *  - content, 30 days. The shortest window that still supports an incident
+ *    review, because prompt and answer text is the most sensitive thing the
+ *    platform touches and the least often needed after the fact.
+ */
+export const DEFAULT_RETENTION: RetentionPolicy = {
+  decisionDays: 400,
+  refusalDays: 400,
+  contentDays: 30,
+};
+
+/** The epoch-ms cutoff for each window, given the current time. Anything at or
+ *  before a cutoff is past its retention and must be deleted. */
+export function retentionCutoffs(
+  now: number,
+  policy: RetentionPolicy = DEFAULT_RETENTION,
+): { decisions: number; refusals: number; content: number } {
+  return {
+    decisions: now - policy.decisionDays * DAY_MS,
+    refusals: now - policy.refusalDays * DAY_MS,
+    content: now - policy.contentDays * DAY_MS,
+  };
+}
+
 /**
  * Default decision store: a per-tenant array of decisions held in memory. A
  * durable backend implements the same `DecisionStore` interface; nothing else
- * in the gateway changes when it is swapped in.
+ * in the gateway changes when it is swapped in. `purge` becomes a
+ * `DELETE ... WHERE at < $1` and `deleteTenant` a `DELETE ... WHERE tenant = $1`.
  */
 export class InMemoryDecisionStore implements DecisionStore {
   private readonly byTenant = new Map<string, Decision[]>();
@@ -165,4 +204,38 @@ export class InMemoryDecisionStore implements DecisionStore {
     if (filter.useCase) rows = rows.filter((d) => d.useCase === filter.useCase);
     return rows;
   }
+
+  /** Drop everything older than `before`, across every tenant. Returns the count
+   *  deleted so a scheduled purge can log a real number rather than "done". */
+  purge(before: number): number {
+    let deleted = 0;
+    for (const [tenant, rows] of this.byTenant) {
+      const kept = rows.filter((d) => d.at >= before);
+      deleted += rows.length - kept.length;
+      if (kept.length === 0) this.byTenant.delete(tenant);
+      else this.byTenant.set(tenant, kept);
+    }
+    return deleted;
+  }
+
+  /** Erase one tenant entirely. Returns the count deleted. Deleting a tenant
+   *  that was never seen is not an error, it deletes nothing. */
+  deleteTenant(tenant: string): number {
+    const rows = this.byTenant.get(tenant) ?? [];
+    this.byTenant.delete(tenant);
+    return rows.length;
+  }
+}
+
+/**
+ * Apply the retention policy to a store. This is the function a scheduled job
+ * calls; it exists so the window and the deletion live in one place and a caller
+ * cannot accidentally purge with the wrong cutoff.
+ */
+export async function applyRetention(
+  store: DecisionStore,
+  now: number,
+  policy: RetentionPolicy = DEFAULT_RETENTION,
+): Promise<number> {
+  return await store.purge(retentionCutoffs(now, policy).decisions);
 }

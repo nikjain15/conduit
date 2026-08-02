@@ -23,10 +23,21 @@
  * so routing is a faithful pass-through, and they keep their own parsing of the
  * raw text/object. Nothing here interprets the answer.
  *
- * NOTE: this file is intentionally self-contained (no internal imports) so it can
- * be consumed by esbuild (Worker), Deno (edge fn), and Vite/tsx (admin/CI)
- * without import-extension conflicts. Adapters are the only other files.
+ * NOTE: this file was written self-contained (no internal imports) so it could be
+ * consumed by esbuild (Worker), Deno (edge fn), and Vite/tsx (admin/CI) without
+ * import-extension conflicts. It now has exactly ONE internal import, the
+ * guardrails engine, added deliberately and recorded here rather than left as a
+ * surprise. The reason is in docs/adr/ADR-0001: a floor a caller has to remember
+ * to wire is an opt in, and the default is then no protection. resolve() is the
+ * one path every request already takes, so the floor lives here. The import is
+ * written with an explicit .ts extension so Deno resolves it.
  */
+import {
+  runGuardrails,
+  type GuardrailAction,
+  type GuardrailReason,
+} from "../../guardrails/src/index.ts";
+import type { GuardrailsConfig } from "../../profile/src/types.ts";
 
 /* ── Identity & config types ──────────────────────────────────────────────── */
 
@@ -118,6 +129,26 @@ export interface ResolveTask {
   /** Phase-0 escape hatch: force the exact current model, bypassing routing, so
    *  answers are provably unchanged. Relaxed once admin routing lands (Phase 4). */
   pinModel?: ModelRef;
+  /**
+   * The use case profile's guardrails config. When present, resolve() screens the
+   * request through the guardrails engine: injection before the model call, PII,
+   * output schema, HITL confidence, and mandatory floors after it.
+   *
+   * OPTIONAL BY DESIGN, AND THAT IS THE COMPROMISE. A profile without this field
+   * behaves exactly as it did before the floor was wired, which is what lets the
+   * floor land without breaking a single existing caller. It also means the floor
+   * is only as universal as the profiles that carry the config, so "screened" is
+   * a property of a use case, not yet of the system. Making it non-optional is a
+   * separate, breaking change; see docs/adr/ADR-0001.
+   */
+  guardrails?: GuardrailsConfig;
+  /** Extra context the post-call guardrails read. `confidence` feeds the HITL
+   *  threshold; `presentEvalKeys` names the evals that actually ran, which is what
+   *  the mandatory floors are checked against. */
+  guardrailContext?: {
+    confidence?: number;
+    presentEvalKeys?: string[];
+  };
   /** Record controls + correlation. */
   record?: {
     /** Client-generated decision id. Lets the judged path build the record, grade
@@ -138,8 +169,44 @@ export interface ResolveTask {
   };
 }
 
+/**
+ * What resolve() decided to do with the answer. Self-describing on purpose: a
+ * guardrail refusal returns a ResolveResult carrying this, never an exception,
+ * because a caller catching an opaque Error cannot tell a refusal from a 500 and
+ * will retry the one it should not.
+ *
+ *  - "served"          normal answer, nothing intervened.
+ *  - "served_redacted" answer served with PII masked; `text` is the masked text.
+ *  - "blocked"         answer withheld. `text` is empty. `guardrail` says why.
+ *  - "escalated"       answer withheld pending a human. `text` is empty and the
+ *                      unserved answer, if the model produced one, is on
+ *                      `guardrail.withheldAnswer`.
+ */
+export type ResolveStatus = "served" | "served_redacted" | "blocked" | "escalated";
+
+/** The guardrail verdict attached to a resolve() result. Present only when the
+ *  task carried a guardrails config. */
+export interface GuardrailOutcome {
+  /** "input" ran before the model call, "output" after it. A blocked input means
+   *  no model call was made and no tokens were spent. */
+  phase: "input" | "output";
+  action: GuardrailAction;
+  reasons: GuardrailReason[];
+  /** True when a refusal was routed to human review rather than refused. */
+  routedToReview?: boolean;
+  /** The answer that was NOT served, present on "blocked" and "escalated" from
+   *  the output phase. Kept so a reviewer can see what was withheld; a caller
+   *  must not serve it. */
+  withheldAnswer?: string;
+}
+
 export interface ResolveResult {
-  /** Raw model text, the caller parses/guards exactly as it does today. */
+  /** What happened. Check this before using `text`: on a refusal `text` is "". */
+  status: ResolveStatus;
+  /** The guardrail verdict, when a guardrails config ran. Absent otherwise. */
+  guardrail?: GuardrailOutcome;
+  /** Raw model text, the caller parses/guards exactly as it does today. Empty
+   *  when `status` is "blocked" or "escalated". */
   text: string;
   /** Provider-native response payload (Workers-AI returns an object the caller
    *  branches on). Undefined for plain Anthropic text. */
@@ -664,6 +731,42 @@ export async function rawModelCall(
   return callProvider(task, model, ctx);
 }
 
+/* ── The guardrail floor, split across the model call ─────────────────────── */
+
+/**
+ * The signals that read the INPUT, so they can run before a token is spent.
+ *
+ * Only the injection guard reads the input. Splitting the config rather than
+ * passing the whole thing matters: `floors` fails closed on a missing eval key,
+ * and before the model has answered NO eval has run, so an unsplit pre-call run
+ * would refuse every request that declares a floor.
+ */
+function inputPhaseConfig(g: GuardrailsConfig): GuardrailsConfig {
+  return {
+    injectionGuard: g.injectionGuard,
+    blockedRequestAction: g.blockedRequestAction,
+  };
+}
+
+/** The signals that read the ANSWER, so they can only run after the model call. */
+function outputPhaseConfig(g: GuardrailsConfig): GuardrailsConfig {
+  return {
+    pii: g.pii,
+    piiAction: g.piiAction,
+    outputSchema: g.outputSchema,
+    hitlThreshold: g.hitlThreshold,
+    floors: g.floors,
+    blockedRequestAction: g.blockedRequestAction,
+  };
+}
+
+/** Map a guardrail action onto the record's gate_status column. */
+function gateStatusFor(action: GuardrailAction): GateStatus {
+  if (action === "block") return "blocked";
+  if (action === "escalate") return "escalated";
+  return "passed";
+}
+
 /* ── resolve(), the one entry point ──────────────────────────────────────── */
 
 export async function resolve(task: ResolveTask, ctx: ResolveCtx): Promise<ResolveResult> {
@@ -698,6 +801,73 @@ export async function resolve(task: ResolveTask, ctx: ResolveCtx): Promise<Resol
   // exact-match gateway cache is global and not tenant-keyed (D11/D15).
   const cacheAllowed = !!meta?.cacheEnabled && !meta?.customerFacing && !meta?.financial;
 
+  /** Fire the record sink without ever letting a logging failure surface (D18). */
+  const emit = (record: AiDecisionRecord): void => {
+    if (!ctx.recordSink) return;
+    try {
+      ctx.recordSink(record);
+    } catch {
+      /* swallow so a log write never changes what the caller sees. */
+    }
+  };
+
+  // ── Guardrail floor, input phase. Runs BEFORE the model call, so a refused
+  //    request costs nothing and no attacker-controlled text reaches a provider.
+  if (task.guardrails) {
+    const decision = await runGuardrails(inputPhaseConfig(task.guardrails), {
+      // Only the caller's own turns are screened. The system prompt is ours.
+      input: task.messages
+        .filter((m) => m.role === "user")
+        .map((m) => m.content)
+        .join("\n"),
+      useCase: task.useCase,
+      tenant: task.tenantId,
+    });
+    if (decision.action === "block" || decision.action === "escalate") {
+      const blockedRecord: AiDecisionRecord = {
+        id: task.record?.id,
+        tenant_id: task.tenantId,
+        use_case: task.useCase,
+        runtime: ctx.runtime,
+        provider: model.provider,
+        model: model.model,
+        request_ref: task.record?.ref ?? null,
+        input: task.record?.storeInput !== false ? { messages: task.messages } : null,
+        output: null,
+        output_json: null,
+        usage: {},
+        cost_usd: 0,
+        latency_ms: 0,
+        cache_hit: false,
+        gate_status: gateStatusFor(decision.action),
+        // The reasons carry the pattern that fired, so a refusal is auditable and
+        // a false block is countable from the decision store, not just in memory.
+        evals: { guardrail: { phase: "input", ...decision } },
+        legacy_table: task.record?.legacyTable ?? null,
+        legacy_id: task.record?.legacyId ?? null,
+      };
+      if (task.record?.defer !== true) emit(blockedRecord);
+      return {
+        status: decision.action === "block" ? "blocked" : "escalated",
+        guardrail: {
+          phase: "input",
+          action: decision.action,
+          reasons: decision.reasons,
+          routedToReview: decision.routedToReview,
+        },
+        text: "",
+        model,
+        providerModel: model.model,
+        usage: {},
+        costUsd: 0,
+        latencyMs: 0,
+        cacheHit: false,
+        decisionId: task.record?.id,
+        record: task.record?.defer === true ? blockedRecord : undefined,
+      };
+    }
+  }
+
   const started = ctx.now();
   let out: ProviderOutput;
   try {
@@ -709,6 +879,43 @@ export async function resolve(task: ResolveTask, ctx: ResolveCtx): Promise<Resol
   }
   const latencyMs = ctx.now() - started;
   const costUsd = computeCostUsd(model.model, out.usage, ctx.config.prices);
+
+  // ── Guardrail floor, output phase. PII, output schema, the HITL confidence
+  //    threshold, and the mandatory floors all read the ANSWER, so they can only
+  //    run here. A refusal at this point has already cost the tokens; that is the
+  //    price of checking output, and it is why the input screen runs first.
+  let served = out.text;
+  let guardrail: GuardrailOutcome | undefined;
+  if (task.guardrails) {
+    const decision = await runGuardrails(outputPhaseConfig(task.guardrails), {
+      answer: out.text,
+      confidence: task.guardrailContext?.confidence,
+      presentEvalKeys: task.guardrailContext?.presentEvalKeys,
+      useCase: task.useCase,
+      tenant: task.tenantId,
+    });
+    const withheld = decision.action === "block" || decision.action === "escalate";
+    guardrail = {
+      phase: "output",
+      action: decision.action,
+      reasons: decision.reasons,
+      routedToReview: decision.routedToReview,
+      withheldAnswer: withheld ? out.text : undefined,
+    };
+    if (withheld) served = "";
+    else if (decision.action === "redact" && decision.redactedAnswer !== undefined) {
+      served = decision.redactedAnswer;
+    }
+  }
+  const status: ResolveStatus = !guardrail
+    ? "served"
+    : guardrail.action === "block"
+      ? "blocked"
+      : guardrail.action === "escalate"
+        ? "escalated"
+        : guardrail.action === "redact"
+          ? "served_redacted"
+          : "served";
 
   // Build the record once. On the default path we fire it off the hot path (D18);
   // on the deferred path (task.record.defer) we return it for the judged path to
@@ -723,29 +930,30 @@ export async function resolve(task: ResolveTask, ctx: ResolveCtx): Promise<Resol
     model: model.model,
     request_ref: task.record?.ref ?? null,
     input: storeInput ? { messages: task.messages } : null,
+    // The record stores what the model produced, including an answer that was
+    // withheld from the caller: the store is the audit trail, and an incident
+    // review needs the text that triggered the refusal.
     output: out.text,
     output_json: out.raw && typeof out.raw === "object" ? out.raw : null,
     usage: capFallback ? { ...out.usage, cap_fallback: true } : out.usage,
     cost_usd: costUsd,
     latency_ms: latencyMs,
     cache_hit: false,
-    gate_status: "unevaluated",
+    // "unevaluated" still means exactly what it meant: no gate ran. It is only
+    // replaced when a guardrails config actually ran on this request.
+    gate_status: guardrail ? gateStatusFor(guardrail.action) : "unevaluated",
+    ...(guardrail ? { evals: { guardrail } } : {}),
     legacy_table: task.record?.legacyTable ?? null,
     legacy_id: task.record?.legacyId ?? null,
   };
 
   const deferred = task.record?.defer === true;
-  if (!deferred && ctx.recordSink) {
-    // D18: never let logging throw; recordSink is fire-and-forget.
-    try {
-      ctx.recordSink(record);
-    } catch {
-      /* swallow so the answer always ships. */
-    }
-  }
+  if (!deferred) emit(record);
 
   return {
-    text: out.text,
+    status,
+    guardrail,
+    text: served,
     raw: out.raw,
     model,
     providerModel: out.providerModel ?? model.model,

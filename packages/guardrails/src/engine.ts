@@ -7,7 +7,10 @@
  * (block > escalate > redact > allow) and any ambiguity resolves toward safety.
  *
  * Signals:
- *  - injectionGuard: a deterministic pattern screen over the input; a hit blocks.
+ *  - injectionGuard: a deterministic pattern screen over the input; a hit blocks
+ *    when it is strong enough to act on alone, or when a weak label is
+ *    corroborated (see injection.ts). An uncorroborated weak label is recorded
+ *    and allowed, which is the false block fix.
  *  - pii: reuses @conduit/evals' pii_scan over the answer; a hit either masks the
  *    matches (redact) or refuses (block), per guardrails.piiAction.
  *  - outputSchema: reuses @conduit/evals' json_schema over the answer; a schema
@@ -15,10 +18,22 @@
  *  - hitlThreshold: an injected confidence below the threshold escalates to a human.
  *  - floors: mandatory eval keys that must be present in the context; a missing
  *    floor blocks (fail-closed), because a floor that did not run cannot be trusted.
+ *
+ * Every refusal is recorded with the pattern that caused it (ledger.ts), so a
+ * false block is a number rather than an anecdote.
+ *
+ * Recovery: a use case may set `blockedRequestAction: "review"`, which turns a
+ * refusal into an escalation. The floor stays on, the answer is still withheld,
+ * and the request reaches a human instead of dying. Default stays "refuse".
  */
-import { builtInMethods, type CheckMethod, type MethodResult } from "@conduit/evals";
+// Imported from the method module rather than the @conduit/evals package entry
+// on purpose: the package entry re-exports judgeCheck, which imports the
+// inference core, and the inference core now imports this engine. Going direct
+// keeps that from being an import cycle.
+import { builtInMethods, type CheckMethod, type MethodResult } from "../../evals/src/methods.ts";
 import type { GuardrailsConfig } from "@conduit/profile";
-import { scanInjection } from "./injection.ts";
+import { isBlockWorthy, scanInjection } from "./injection.ts";
+import { recordBlockEvent, type BlockEvent, type BlockOutcome } from "./ledger.ts";
 import { maskPii } from "./redact.ts";
 
 /** The four decisions, ordered least to most severe. */
@@ -32,6 +47,9 @@ export interface GuardrailReason {
   action: GuardrailAction;
   /** Human readable explanation. */
   detail: string;
+  /** For pattern based signals: the labels that matched. Carried so a refusal can
+   *  be counted by cause without re-running the scan over the input. */
+  patterns?: string[];
 }
 
 /** The engine's verdict for one request. */
@@ -40,6 +58,9 @@ export interface GuardrailDecision {
   reasons: GuardrailReason[];
   /** Present only when the final action is "redact": the masked answer to serve. */
   redactedAnswer?: string;
+  /** True when the decision would have been a refusal and the use case routed it
+   *  to human review instead. The action is then "escalate". */
+  routedToReview?: boolean;
 }
 
 /** Everything the engine reads. Each field is optional; a signal that has nothing
@@ -53,13 +74,22 @@ export interface GuardrailContext {
   confidence?: number;
   /** The eval keys that ran for this request, checked against guardrails.floors. */
   presentEvalKeys?: string[];
+  /** Labels carried onto any recorded refusal so blocks can be counted per use
+   *  case and tenant. Never used in the decision itself. */
+  useCase?: string;
+  tenant?: string;
 }
 
-/** Injected, mockable method implementations. Defaults to the @conduit/evals
- *  built-ins so tests can substitute a stub without a registry round-trip. */
+/** Injected, mockable method implementations. Defaults to the built-in check
+ *  methods so tests can substitute a stub without a registry round-trip. */
 export interface GuardrailDeps {
   piiScan?: CheckMethod;
   jsonSchema?: CheckMethod;
+  /** Durable sink for refusals. The in-process ledger is always written; this is
+   *  the seam for a host that wants them in a log, a metric, or a table. */
+  onBlock?: (event: BlockEvent) => void;
+  /** Injected clock, so a recorded event is testable. */
+  now?: () => number;
 }
 
 /** Severity rank so the most severe action wins a combine. */
@@ -90,21 +120,56 @@ export async function runGuardrails(
   const g = guardrails ?? {};
   const piiScan = deps.piiScan ?? builtInMethods.pii_scan;
   const jsonSchema = deps.jsonSchema ?? builtInMethods.json_schema;
+  const now = deps.now ?? Date.now;
 
   const reasons: GuardrailReason[] = [];
   let action: GuardrailAction = "allow";
   let redactedAnswer: string | undefined;
 
-  // 1. Injection guard over the input. A hit blocks.
+  /** Write one refusal (or near refusal) to the ledger and any injected sink. */
+  const record = (signal: string, patterns: string[], outcome: BlockOutcome): void => {
+    const event: BlockEvent = {
+      at: now(),
+      signal,
+      patterns,
+      outcome,
+      useCase: ctx.useCase,
+      tenant: ctx.tenant,
+    };
+    recordBlockEvent(event);
+    // A logging failure must never change a safety decision.
+    try {
+      deps.onBlock?.(event);
+    } catch {
+      /* swallow */
+    }
+  };
+
+  // 1. Injection guard over the input. A hit blocks only when it is strong enough
+  //    to act on alone or is corroborated; see isBlockWorthy in injection.ts.
   if (g.injectionGuard && ctx.input) {
     const scan = scanInjection(ctx.input);
-    if (scan.hit) {
+    if (isBlockWorthy(scan)) {
+      const support = scan.corroborators.length > 0 ? `, corroborated by: ${scan.corroborators.join(", ")}` : "";
       reasons.push({
         signal: "injectionGuard",
         action: "block",
-        detail: `heuristic injection patterns matched: ${scan.labels.join(", ")}`,
+        detail: `heuristic injection patterns matched: ${scan.labels.join(", ")}${support}`,
+        patterns: scan.labels,
       });
       action = moreSevere(action, "block");
+    } else if (scan.hit) {
+      // A weak label with nothing behind it. Allowed on purpose, and recorded on
+      // purpose: these near misses are the evidence for tuning the pattern set.
+      reasons.push({
+        signal: "injectionGuard",
+        action: "allow",
+        detail:
+          `weak injection pattern matched (${scan.labels.join(", ")}) with no corroborating ` +
+          `signal, so the request was allowed rather than refused`,
+        patterns: scan.labels,
+      });
+      record("injectionGuard", scan.labels, "held_for_corroboration");
     }
   }
 
@@ -171,8 +236,35 @@ export async function runGuardrails(
     }
   }
 
+  // Recovery path. A refusal with nowhere to go is terminal for the user: the
+  // request dies and only a code change brings it back. When the use case opts
+  // in, the refusal becomes an escalation instead. The answer is still withheld,
+  // the floor still ran, and a human now has the request. Default is "refuse",
+  // so nothing changes for a use case that has not chosen this.
+  let routedToReview = false;
+  if (action === "block" && g.blockedRequestAction === "review") {
+    action = "escalate";
+    routedToReview = true;
+    reasons.push({
+      signal: "injectionGuard",
+      action: "escalate",
+      detail: "refusal routed to human review by the use case's blockedRequestAction",
+    });
+  }
+
+  // Record every refusal with the pattern that caused it, so false blocks are
+  // countable rather than estimated. Reasons that argued for a block are the
+  // causes, even when a later signal made the final action more severe.
+  if (routedToReview || action === "block") {
+    const causes = reasons.filter((r) => r.action === "block");
+    const outcome: BlockOutcome = routedToReview ? "routed_to_review" : "blocked";
+    for (const cause of causes) record(cause.signal, cause.patterns ?? [], outcome);
+  }
+
   // Only surface the redacted answer when redact is the winning action.
-  return action === "redact" && redactedAnswer !== undefined
-    ? { action, reasons, redactedAnswer }
-    : { action, reasons };
+  const base: GuardrailDecision =
+    action === "redact" && redactedAnswer !== undefined
+      ? { action, reasons, redactedAnswer }
+      : { action, reasons };
+  return routedToReview ? { ...base, routedToReview } : base;
 }

@@ -25,6 +25,9 @@ export {
   withinWindow,
   parseWindow,
   InMemoryDecisionStore,
+  DEFAULT_RETENTION,
+  retentionCutoffs,
+  applyRetention,
 } from "./metering";
 export { buildGatewayTools, createGatewaySse } from "./mcp";
 export { createGatewayServer } from "./server";
@@ -37,6 +40,7 @@ export type {
   DecisionStore,
   DecisionQuery,
   Decision,
+  RetentionPolicy,
   GatewayDeps,
   GatewayCores,
   ParsedRequest,

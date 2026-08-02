@@ -164,6 +164,45 @@ export interface DecisionQuery {
 export interface DecisionStore {
   append(record: Decision): void | Promise<void>;
   query(tenant: string, filter?: DecisionQuery): Decision[] | Promise<Decision[]>;
+  /**
+   * Delete every decision recorded before `before` (epoch ms), across all
+   * tenants, and return how many rows went. This is the retention window made
+   * real: `docs/RETENTION.md` states the numbers and this is what enforces them.
+   *
+   * Required, not optional, and that is the point. The interface previously held
+   * only `append` and `query`, so a durable backend had nowhere to hang a delete
+   * even if it wanted one, and "we keep decisions forever" was the default by
+   * omission rather than by decision. A store that cannot forget is a liability
+   * that grows.
+   */
+  purge(before: number): number | Promise<number>;
+  /**
+   * Delete every decision belonging to one tenant and return how many rows went.
+   * The deletion path for a customer who leaves or asks to be erased. Tenant
+   * scoped because the store is already bucketed by tenant, which is the same
+   * property that makes isolation a storage-layer invariant.
+   */
+  deleteTenant(tenant: string): number | Promise<number>;
+}
+
+/**
+ * How long each kind of record is kept. Days, counted from when the record was
+ * written. Enforced by `DecisionStore.purge` running against `retentionCutoffs`.
+ */
+export interface RetentionPolicy {
+  /** Metered decision rows: cost, latency, model, gate status, timestamps. */
+  decisionDays: number;
+  /** Guardrail refusal causes: the pattern that fired, no request content. */
+  refusalDays: number;
+  /**
+   * Prompt and answer content. The gateway's decision store holds NONE of this
+   * (see the Decision type: there is no input or output field), so this window
+   * governs the inference decision record instead, which is written by
+   * `resolve()` and can be turned off per request with `record.storeInput`.
+   * Stated here so one document holds every window, and marked in
+   * docs/RETENTION.md as policy the gateway cannot itself enforce.
+   */
+  contentDays: number;
 }
 
 /** One use case's summed cost inside an app's usage rollup. */

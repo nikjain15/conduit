@@ -28,3 +28,28 @@ jobs:
         run: npx vitest run evals
       - name: Build console
         run: npm run build --workspace @conduit/console
+
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The secret scan reads tracked files at this commit only. History
+          # scanning is a separate job and is NOT done here; see docs/SAFETY.md.
+          fetch-depth: 1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install
+        run: npm install
+      # Fails on any high or critical advisory that is not allowlisted. Every
+      # allowlist entry carries a reason and an expiry date, and the expiry is
+      # enforced: an entry that has aged out fails the build even when the audit
+      # is otherwise clean. .github/security/audit-allowlist.json.
+      - name: Dependency audit
+        run: node scripts/audit-check.mjs
+      # Looks for credential formats, not for the word "key". High signal on
+      # purpose: a scanner that cries wolf gets muted, and a muted scanner is
+      # worse than none because it also removes the excuse to look.
+      - name: Secret scan
+        run: node scripts/secret-scan.mjs

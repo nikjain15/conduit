@@ -186,3 +186,20 @@ is a P1. Leaving it open while the eval that catches it is written first is the
 deliberate order recorded in `docs/DECISION_LOG.md`: the eval had to be seen
 failing against the real defect before the defect was fixed, otherwise the eval
 proves nothing.
+
+## Status update, 2026-08-02, second pass
+
+The tables above are a dated record of what the reviews found and are left as
+written. This is what has changed since, and nothing else has.
+
+| Finding | Was | Now |
+|---|---|---|
+| A1, the guardrail floor is on no request path | P0 open | Closed. `resolve()` calls `runGuardrails` in two phases. Closed one level lower than the review proposed: in the inference core rather than in `handleInfer`, so the in process callers are covered too, not just the gateway |
+| A9, no dependency audit or secret scan | P2 open | Closed. A `security` job runs both, with an allowlist whose expiry dates are enforced in code |
+| B1, tool output re enters the transcript unlabelled and unscreened | P0 open | Closed. Tool results are screened and enveloped. The review's own caution stands: the envelope is a label, and the authority invariant is the boundary |
+| B2, no deletion path and nowhere in the interface to put one | P1 open | Closed for the store: `purge` and `deleteTenant` are required interface methods with windows in `docs/RETENTION.md`. Open for content, which lives outside this repo and is stated as policy without enforcement |
+| B4, a block leaves no record | P1 open | Closed. Every refusal is recorded with the pattern that caused it, in process and on the decision record |
+| B6, PII masking is narrower than the claim | P2 open | Still open. The 25 percent over blocking figure quoted in the defence is now 11 percent, which does not change the argument |
+
+Everything else in the tables is unchanged and still open, including A5, which
+stays open on purpose.

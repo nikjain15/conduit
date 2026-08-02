@@ -12,6 +12,9 @@
   "scripts": {
     "typecheck": "tsc --noEmit"
   },
+  "dependencies": {
+    "@conduit/guardrails": "0.1.0"
+  },
   "keywords": [
     "ai",
     "agent",
