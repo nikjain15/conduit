@@ -51,37 +51,24 @@ export const FAITHFULNESS_CRITERIA =
   "answer is helpful or on-topic; an unhelpful but fully supported answer passes.";
 
 /**
- * Relevance is judged WITHOUT the source document, deliberately, and against the
- * SPECIFIC question rather than the general subject.
+ * Relevance is judged WITHOUT the source document, deliberately.
  *
- * Two measured iterations got here, both recorded in evals/README.md:
+ * v1 of this rubric passed the source in and told the judge to ignore
+ * correctness. Measured on 2026-08-02 that scored kappa 0.13: it rejected the
+ * on-topic-but-factually-wrong cases anyway, because a judge holding a document
+ * cannot resist checking the answer against it. Telling a model not to use
+ * information you have just handed it does not work.
  *
- * v1 passed the source in and told the judge to ignore correctness. kappa 0.13.
- * It rejected on-topic-but-wrong answers anyway, because a judge holding a
- * document cannot resist checking against it. Instructing a model to ignore
- * information you just handed it does not work.
- *
- * v2 withheld the source, which is how RAGAS computes answer relevancy. kappa
- * 0.53, and the error flipped: it passed all 15 on-topic answers but caught only
- * 8 of 15 off-topic ones. Too lenient, because the off-topic answers discuss the
- * same document and so read as the same subject.
- *
- * v3 names that exact failure: same subject area is not the test, answering THIS
- * question is.
+ * v2 removes the temptation instead of instructing against it, which is also how
+ * RAGAS computes answer relevancy: from the question and the answer alone.
  */
 export const RELEVANCE_CRITERIA =
   "You are checking RELEVANCE only, and you have deliberately not been shown any " +
-  "source material, so you cannot verify facts and must not try. An answer full " +
-  "of wrong figures is still relevant if it addresses the question. " +
-  "Answer pass=true ONLY if the answer actually responds to the specific thing " +
-  "that was asked. Ask yourself: if someone asked this question and received this " +
-  "answer, would they have got a response to their question, or would they have to " +
-  "ask again? If they would have to ask again, answer pass=false. " +
-  "Being about the same general topic is NOT enough. An answer that supplies " +
-  "adjacent or related information from the same document, without addressing what " +
-  "was actually asked, is irrelevant and must fail. For example, if the question " +
-  "asks about a deadline and the answer gives an amount, that fails even though " +
-  "both concern the same contract.";
+  "source material. Answer pass=true if the answer is ON TOPIC for the question, " +
+  "meaning it attempts to address what was asked. Answer pass=false only if it " +
+  "discusses a different subject. You cannot verify facts here and must not try: " +
+  "an answer containing wrong figures is still on topic and passes. Judge subject " +
+  "matter only.";
 
 /** Anthropic call. Omits sampling params for models the catalog says reject
  *  them, so a reasoning-tier judge does not fail with an opaque HTTP 400. */
