@@ -14,32 +14,26 @@
     "           vulnerability becomes a forgotten one. Renewing an entry is a",
     "           deliberate act with a fresh reason.",
     "",
-    "Four entries today, all of them the same finding: the console's build and",
-    "test toolchain (vite 5, vitest 2) carries advisories that are only fixed by",
-    "moving to vite 7 and vitest 3. That upgrade hit a peer dependency conflict",
-    "with @vitejs/plugin-react and is a migration of its own, not a line in a",
-    "security commit. The expiry is deliberately short so it comes back."
+    "Empty as of 2026-08-02, and empty is the intended resting state.",
+    "",
+    "The four entries that used to live here, one vitest and three vite, all rested",
+    "on the same sentence: the fix needs vite 7 and vitest 3, that upgrade hits a",
+    "peer conflict with @vitejs/plugin-react, and it is a migration rather than a",
+    "line in a security commit. The reachability arguments were sound and are worth",
+    "reading in the git history. The upgrade claim was not, and it was checkable on",
+    "the day it was written.",
+    "",
+    "The advisories are fixed in vite 6.4.3, not vite 7. @vitejs/plugin-react 5",
+    "peers vite ^4 || ^5 || ^6 || ^7 || ^8, so the peer conflict belonged to",
+    "plugin-react 4 and disappears one major up. vite 5.4.10 to 6.4.3, vitest 2 to",
+    "3.2.7, plugin-react 4 to 5.2.0. npm audit goes from 10 advisories, including",
+    "two critical, to zero. The console still builds and all 275 tests still pass.",
+    "",
+    "Worth keeping: dev-only reachability is a good argument, and it is not a reason",
+    "to stop looking for a fix. These four sat behind an unverified sentence about a",
+    "major version for months, and nothing in this mechanism could have caught that,",
+    "because the mechanism only ever asks whether the reason is still in date, never",
+    "whether it is still true."
   ],
-  "allow": [
-    {
-      "id": "GHSA-5xrq-8626-4rwp",
-      "reason": "vitest UI server reads and executes arbitrary files. The UI server is never started: CI runs `vitest run` and no script in this repo passes --ui. Test tooling only, not reachable from any shipped package or from the gateway. Fix requires vitest 3.",
-      "expires": "2026-11-01"
-    },
-    {
-      "id": "GHSA-4w7w-66w2-5vf9",
-      "reason": "vite dev server path traversal in optimized deps .map handling. The dev server runs only on a developer machine via `npm run dev`; the console is shipped as a static build and no deployment serves vite. Fix requires vite 7.",
-      "expires": "2026-11-01"
-    },
-    {
-      "id": "GHSA-v6wh-96g9-6wx3",
-      "reason": "launch-editor NTLMv2 hash disclosure via UNC paths on Windows, reached only through the vite dev server error overlay. Same exposure as above: dev only, and no Windows developer or CI runner is in use. Fix requires vite 7.",
-      "expires": "2026-11-01"
-    },
-    {
-      "id": "GHSA-fx2h-pf6j-xcff",
-      "reason": "vite server.fs.deny bypass on Windows alternate paths. Dev server only, and nothing in this repo runs a vite server outside a developer machine. Fix requires vite 7.",
-      "expires": "2026-11-01"
-    }
-  ]
+  "allow": []
 }

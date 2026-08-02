@@ -130,6 +130,41 @@ and vitest toolchain, expiring 2026-11-01: the fix is a major upgrade that hit a
 peer dependency conflict and is a migration of its own rather than a line in a
 security commit.
 
+**Both of those closed, 2026-08-02, and the second one was wrong.**
+
+Dependabot is now enabled. The first thing it reported was **ten open advisories,
+two of them critical**, which is the precise cost of the gap described above: the
+CI audit only fires on a push, so between pushes nothing was watching, and the
+count had grown unseen. The gate itself was working correctly the whole time and
+passing, because all four of the high and critical findings were allowlisted and
+in date.
+
+The allowlist reason is the part that did not survive checking. It said the fix
+needs **vite 7 and vitest 3**, and that the upgrade hits a peer dependency
+conflict with `@vitejs/plugin-react`. The reachability arguments attached to each
+entry were sound and are worth reading in the git history: the vite dev server
+never runs outside a developer machine, and the vitest UI server is never started
+by any script here. The upgrade claim was not sound, and it was checkable on the
+day it was written:
+
+- The advisories are fixed in **vite 6.4.3**, not vite 7.
+- The peer conflict belonged to `@vitejs/plugin-react` **4**. Version 5 peers
+  `vite ^4 || ^5 || ^6 || ^7 || ^8`, so it disappears one major up.
+
+What actually shipped: vite 5.4.10 to 6.4.3, vitest 2 to 3.2.7, plugin-react 4 to
+5.2.0, and root `overrides` pulling `vite`, `@hono/node-server` and
+`@modelcontextprotocol/sdk` past the versions their parents pin. `npm audit` goes
+from ten advisories to **zero**, the allowlist is empty, the console still builds,
+and all 275 tests still pass.
+
+**The lesson, which is not about vite.** Dev-only reachability is a good argument
+and it is not a reason to stop looking for a fix. These four entries sat behind an
+unverified sentence about a major version, and no part of this mechanism could
+have caught it, because an expiring allowlist only ever asks whether a reason is
+still **in date**. It never asks whether the reason is still **true**. The expiry
+would have forced a re-read on 2026-11-01; enabling Dependabot forced it in a day.
+Those two controls answer different questions and this repo needed both.
+
 ## What the simulated stakeholder reviews changed, 2026-08-02
 
 Three adversarial reviews (architecture, security and privacy, adoption) were run
