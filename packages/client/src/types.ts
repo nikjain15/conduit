@@ -113,6 +113,17 @@ export interface RetrieveResult {
 export interface AgentResult {
   answer: string;
   steps: unknown[];
+  /**
+   * Which bound ended the run (ADR-0002). Absent means the core does not report
+   * stop conditions; `"final_answer"` means the model finished on its own.
+   * Anything else means `answer` is PARTIAL and `notice` says why.
+   */
+  stopReason?: "final_answer" | "max_steps" | "budget_exhausted" | "loop_detected";
+  /**
+   * Human-readable explanation when a bound tripped. Render this alongside
+   * `answer`: without it a cut-short run looks like a complete one.
+   */
+  notice?: string;
 }
 
 export interface EvaluateResult {

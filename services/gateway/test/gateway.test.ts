@@ -309,6 +309,44 @@ describe("gateway router", () => {
     expect(e.json).toMatchObject({ summary: "ran d1" });
   });
 
+  /**
+   * ADR-0002. A bound that trips inside the loop is worth nothing to an API
+   * caller if the explanation stops at the library boundary: the caller renders
+   * `answer`, sees a partial result or an empty one, and has no way to tell it
+   * apart from a complete answer. This asserts the stop survives the hop.
+   */
+  it("passes a stopped run's reason and notice through to the response body", async () => {
+    const { deps } = makeDeps({
+      async runAgent(_task, _tenant) {
+        return {
+          answer: "",
+          steps: [{ action: "lookup" }, { action: "lookup" }],
+          stopReason: "loop_detected" as const,
+          notice: "Stopped because the run repeated itself. Here is how far I got: 2 steps completed.",
+        };
+      },
+    });
+
+    const a = await route(
+      req({ method: "POST", path: "/v1/agent", headers: bearer("key-a"), body: { goal: "circles" } }),
+      deps,
+    );
+
+    expect(a.status).toBe(200);
+    expect(a.json).toMatchObject({
+      stopReason: "loop_detected",
+      notice: expect.stringContaining("Here is how far I got"),
+    });
+  });
+
+  it("omits the stop fields entirely for a core that does not report them", () => {
+    // Optional by design: a core written before stop conditions existed is not
+    // broken by the wire contract carrying them.
+    const legacy = { answer: "done", steps: [] };
+    expect("stopReason" in legacy).toBe(false);
+    expect("notice" in legacy).toBe(false);
+  });
+
   it("returns 404 for an unknown route", async () => {
     const { deps } = makeDeps();
     const res = await route(
