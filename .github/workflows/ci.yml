@@ -26,6 +26,12 @@ jobs:
       # offline. Floors and the measured baseline are in evals/README.md.
       - name: Eval gate
         run: npx vitest run evals
+      # Enforces docs/VERSIONING.md against a committed snapshot of the /v1
+      # surface. A removed or renamed field, or an optional one turned
+      # required, fails here rather than at a consumer who already shipped.
+      # Additive changes are allowed and just need the snapshot regenerated.
+      - name: API surface gate
+        run: node scripts/check-api-surface.mjs
       - name: Build console
         run: npm run build --workspace @conduit/console
 

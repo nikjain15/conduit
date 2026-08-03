@@ -82,6 +82,14 @@ The client calls `tools/list` to discover tools and `tools/call` to run one; arg
 
 Sampling parameters (`temperature` / `top_p` / `top_k`) are a per-model API contract, not a preference. Current reasoning tiers (Opus 5 / 4.8 / 4.7, Sonnet 5, Fable 5) reject them with HTTP 400; Haiku 4.5 and older accept them. The core only sends a sampling param to a model that accepts it and relies on grounded prompts for determinism elsewhere.
 
+## Changelog and versioning
+
+[`CHANGELOG.md`](CHANGELOG.md) records every change to the two versioned surfaces, the `/v1` HTTP
+API and the `@conduit/*` packages. [`docs/VERSIONING.md`](docs/VERSIONING.md) defines what counts
+as a breaking change, what `/v1` promises, and the deprecation window that applies when `/v2`
+ships. `scripts/check-api-surface.mjs` enforces it in CI against a committed snapshot, so a removed
+or renamed field fails the build instead of a consumer.
+
 ## Status
 
 All ten packages typecheck clean and are unit-tested in CI (275 tests), with `@conduit/inference` promoted from a production inference core. The gateway and console build in CI, and the console is live at nikjain15.github.io/conduit against a mock gateway that starts empty, real usage and SUQS SLOs appear once a gateway runs with a live API key and metered traffic. The four apps embed the client and route their AI through Conduit in process today; central gateway reporting is wired and dormant until a gateway is deployed.
