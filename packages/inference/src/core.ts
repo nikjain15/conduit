@@ -406,16 +406,56 @@ export function buildInferenceConfig(payload: Partial<TwinPayload> | null | unde
 
 /* ── Cost math ────────────────────────────────────────────────────────────── */
 
+/**
+ * Models with no row in the price table are billed at this rate rather than at
+ * zero. It is the most expensive tier Conduit currently knows about, on purpose:
+ * an unknown model is more likely to be a newly-added frontier tier than a free
+ * one, and a cost KPI that reads low is far more dangerous than one that reads
+ * high. The `unpriced` flag on the result says which happened, so a caller can
+ * tell an estimate from a measurement.
+ */
+export const UNPRICED_FALLBACK: PriceEntry = { inputPerMTok: 5.0, outputPerMTok: 25.0 };
+
+export interface CostResult {
+  usd: number;
+  /** True when no price row matched and UNPRICED_FALLBACK was used. */
+  unpriced: boolean;
+}
+
+/**
+ * Price one call.
+ *
+ * The `if (!p) return 0` this replaces was a silent under-report, and it was
+ * reachable: `DEFAULT_PRICES` lists Haiku, Sonnet 4.6 and the free Workers-AI
+ * model, while callers may pass any model through `pinModel`, and admin config
+ * can rewrite the table at runtime. A call on an unlisted model was recorded as
+ * costing nothing at all, so the cost KPIs would read healthy precisely when an
+ * expensive unknown tier had been introduced. Zero is the one answer that is
+ * never a safe default for a spend figure.
+ *
+ * Rally's equivalent already got this right and said why ("so an estimate is
+ * never silently zero"); its bug was the opposite one, a stale Opus price.
+ */
 export function computeCostUsd(
   model: string,
   usage: { inputTokens?: number; outputTokens?: number },
   prices: Record<string, PriceEntry>,
 ): number {
-  const p = prices[model];
-  if (!p) return 0;
+  return computeCost(model, usage, prices).usd;
+}
+
+/** As `computeCostUsd`, but reports whether the price was known. */
+export function computeCost(
+  model: string,
+  usage: { inputTokens?: number; outputTokens?: number },
+  prices: Record<string, PriceEntry>,
+): CostResult {
+  const known = prices[model];
+  const p = known ?? UNPRICED_FALLBACK;
   const inTok = usage.inputTokens ?? 0;
   const outTok = usage.outputTokens ?? 0;
-  return (inTok / 1_000_000) * p.inputPerMTok + (outTok / 1_000_000) * p.outputPerMTok;
+  const usd = (inTok / 1_000_000) * p.inputPerMTok + (outTok / 1_000_000) * p.outputPerMTok;
+  return { usd, unpriced: !known };
 }
 
 /* ── Provider calls (protocol lives in the core; runtime bindings are injected) ─ */
