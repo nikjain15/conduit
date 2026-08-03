@@ -100,6 +100,26 @@ export interface AgentStep {
 export interface AgentResult {
   answer: string;
   steps: AgentStep[];
+  /**
+   * Which bound ended the run, when the core reports one (ADR-0002). Absent
+   * means the core does not report stop conditions; `"final_answer"` means the
+   * model finished on its own. Anything else means `answer` is PARTIAL.
+   *
+   * Optional, so a core that predates stop conditions is unaffected and this is
+   * not a breaking change to the wire contract.
+   */
+  stopReason?: "final_answer" | "max_steps" | "budget_exhausted" | "loop_detected";
+  /**
+   * Human-readable explanation when a bound tripped, empty or absent otherwise.
+   *
+   * This field is the reason the other one is not enough. A caller that renders
+   * only `answer` would otherwise show a truncated result, or nothing at all,
+   * with no indication the run was cut short: the silent stop that ADR-0002
+   * exists to prevent. The gateway passes it straight through from the core so
+   * the explanation survives the network hop rather than stopping at the
+   * library boundary.
+   */
+  notice?: string;
 }
 
 export interface EvalTask {
