@@ -16,11 +16,14 @@
  * as warnings on the resolved config.
  */
 
-import { runAgent, selectSkills } from "@conduit/agent";
+import { ZERO_SPEND, addUsage, runAgent, selectSkills } from "@conduit/agent";
 import type {
   CallModel,
+  RunBudget,
   Skill,
+  Spend,
   StepRecord,
+  StopReason,
   Tool,
 } from "@conduit/agent";
 import type { ChatMessage } from "@conduit/inference";
@@ -218,6 +221,10 @@ export interface ResolvedAgent {
   tools: Tool[];
   skills: Skill[];
   maxSteps: number;
+  /** Spend ceiling for the run, if the profile declared one. */
+  budget?: RunBudget;
+  /** Repeated-state halting; undefined leaves the loop's own default (on). */
+  detectLoops?: boolean;
   warnings: string[];
 }
 
@@ -239,6 +246,16 @@ export function resolveAgent(
     return { mode: "single", tools: [], skills: [], maxSteps: DEFAULT_MAX_STEPS, warnings };
   }
 
+  // A budget of all-zeros or negatives would be a ceiling nothing can satisfy,
+  // which silently turns every run into an immediate stop. Say so instead.
+  if (agent.budget) {
+    for (const [field, value] of Object.entries(agent.budget)) {
+      if (typeof value === "number" && value <= 0) {
+        warnings.push(`agent budget "${field}" is ${value}: a non-positive ceiling stops every run at its first turn`);
+      }
+    }
+  }
+
   const tools: Tool[] = [];
   for (const name of agent.tools) {
     const tool = toolSource.get(name) as Tool | undefined;
@@ -258,6 +275,8 @@ export function resolveAgent(
     tools,
     skills,
     maxSteps: agent.maxSteps ?? DEFAULT_MAX_STEPS,
+    budget: agent.budget,
+    detectLoops: agent.detectLoops,
     warnings,
   };
 }
@@ -281,8 +300,22 @@ export interface RunConfiguredResult {
   answer?: string;
   /** Ordered trace of loop steps. Empty for single mode. */
   steps: StepRecord[];
-  /** True when a loop stopped at maxSteps without a final answer. */
+  /** True when a loop stopped at maxSteps without a final answer. Exactly
+   *  `stopReason === "max_steps"`; prefer `stopReason`. */
   stoppedAtCap: boolean;
+  /** Which termination ended the run. Always "final_answer" in single mode. */
+  stopReason: StopReason;
+  /**
+   * What to show the user when a bound tripped, empty otherwise. This is the
+   * user-visible half of the stop conditions: a run that halts on a budget or a
+   * detected loop returns its partial trace plus this line, rather than an
+   * empty answer the caller has to explain on its behalf.
+   */
+  notice: string;
+  /** What the run consumed, as reported by `callModel`. */
+  spend: Spend;
+  /** Non-empty when a declared budget could not actually have tripped. */
+  budgetEnforceable: string[];
   /** The ids of the skills whose instructions were injected this run. */
   loadedSkills: string[];
   /** Warnings from resolving names to registered items (dropped unknowns). */
@@ -332,12 +365,18 @@ export async function runConfiguredAgent(
       context: deps.context,
       system: base,
       allowSideEffects: deps.allowSideEffects,
+      budget: resolved.budget,
+      ...(resolved.detectLoops === undefined ? {} : { detectLoops: resolved.detectLoops }),
     });
     return {
       mode: "loop",
       answer: result.answer,
       steps: result.steps,
       stoppedAtCap: result.stoppedAtCap,
+      stopReason: result.stopReason,
+      notice: result.notice,
+      spend: result.spend,
+      budgetEnforceable: result.budgetEnforceable,
       loadedSkills: result.loadedSkills,
       warnings: resolved.warnings,
     };
@@ -361,6 +400,13 @@ export async function runConfiguredAgent(
     answer: turn.finalAnswer,
     steps,
     stoppedAtCap: false,
+    // Single mode makes exactly one call: there is no loop to bound, so no stop
+    // condition can trip. The spend is still recorded, because a single call
+    // costs money too and a caller aggregating across runs needs the number.
+    stopReason: "final_answer",
+    notice: "",
+    spend: addUsage(ZERO_SPEND, turn.usage),
+    budgetEnforceable: [],
     loadedSkills: matched.map((s) => s.id),
     warnings: resolved.warnings,
   };

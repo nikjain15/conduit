@@ -90,6 +90,45 @@ Conduit already prices every real call. `computeCost` runs in the resolve path a
 lands on the cost KPIs, so one day of live traffic makes this script redundant for anything
 except forecasting. Until that traffic exists, this is a model, and it says so.
 
+## Run budget
+
+Everything above prices a single call. An agent run is many calls, and until 2026-08-02 the only
+thing bounding one was a step cap. A step cap is not a cost bound. Twelve steps against a short
+transcript and twelve steps against a long one differ by an order of magnitude, because each step
+resends the transcript so far, and the transcript grows with every observation. The step cap says
+how many times you pay, never how much.
+
+So a loop run now carries a ceiling of its own, set per use-case profile
+(`AgentConfig.budget` in `packages/profile/src/types.ts`):
+
+| Field | Bounds | Trips when |
+|---|---|---|
+| `maxTokens` | input + output tokens, whole run | the running total reaches the ceiling |
+| `maxCostUsd` | USD, whole run | the running total reaches the ceiling |
+
+Both are optional and independent. Neither set means the step cap is the only bound, which is what
+every caller had before, so nothing changed underneath existing profiles.
+
+**The budget is checked after a turn is charged and before another one is bought.** A run may
+therefore finish one turn over its ceiling; it may not start another. Bounding it the other way
+round would need a per-turn cost estimate before the call, and an estimate is a guess. This
+document does not trade a measured number for a guessed one, and neither does the loop.
+
+**A ceiling the loop cannot see is reported, not assumed.** The loop does not compute cost:
+pricing lives in `computeCost` and only the injected `callModel` knows which model it called, so
+the budget can only bound what a turn reports on `ModelTurn.usage`. Set `maxCostUsd` against a
+`callModel` that reports tokens but no cost and the ceiling can never trip however long the run
+goes. That case is not silently tolerated: `RunAgentResult.budgetEnforceable` comes back non-empty
+saying so, and `packages/agent/test/stop.test.ts` holds it. A budget that cannot trip is a
+decoration, and a decoration described as a safeguard is the failure mode this whole section
+exists to prevent.
+
+**Nothing here is measured against live traffic yet**, for the same reason as everything else on
+this page: there is none. The ceilings are ones an operator chooses, and the arithmetic that
+enforces them is unit tested offline. What does not exist is a distribution of real run costs to
+choose a defensible default from. Until that traffic exists, no default budget ships, because a
+default nobody measured is a number invented to look rigorous.
+
 ## What this document does not claim
 
 **The routing is chosen, not validated.** `chat` runs on Haiku because Haiku is the cheap tier,

@@ -6,6 +6,9 @@
  * loop itself has no runtime globals and is exercised entirely with mocks in tests.
  *
  *   - runAgent(...)      the bounded reason-act loop (loop.ts).
+ *   - stop conditions    the three bounds that end a run besides the model
+ *                        deciding it is done: step cap, token/USD budget, and
+ *                        repeated-state detection (stop.ts).
  *   - Tool / ToolSpec    a validated, optionally side-effecting capability (tool.ts).
  *   - Skill              a declarative, intent-selected instruction module (skill.ts).
  *   - validate(...)      the JSON-schema argument validator the loop uses (schema.ts).
@@ -23,6 +26,17 @@ export type {
   AgentError,
   AgentErrorKind,
 } from "./loop";
+
+export {
+  addUsage,
+  budgetBreach,
+  budgetGaps,
+  stateKey,
+  stopNotice,
+  totalTokens,
+  ZERO_SPEND,
+} from "./stop";
+export type { RunBudget, Spend, StopReason, TurnUsage } from "./stop";
 
 export { toToolSpec } from "./tool";
 export type { Tool, ToolSpec } from "./tool";

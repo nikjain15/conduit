@@ -27,19 +27,42 @@
  * and is not worth. The invariant above is the part of this file that actually
  * holds under a successful injection.
  *
- * Termination: the loop returns when the model gives a final answer, or when
- * `maxSteps` model turns have been taken (a never-finishing model stops at the cap).
+ * Termination: the loop returns when the model gives a final answer, or when one of
+ * three bounds trips: the `maxSteps` model-turn cap, a token/USD run budget, or the
+ * run revisiting a state it has already been in. Each bound reports itself on
+ * `stopReason` and carries a user-facing `notice` describing how far the run got.
+ * See stop.ts for why one bound was not enough.
  */
 import { screenAndWrapUntrusted } from "../../guardrails/src/untrusted.ts";
 import type { ChatMessage } from "../../inference/src/core";
 import { validate, type ValidationError } from "./schema";
 import { selectSkills, type Skill, type SkillContext } from "./skill";
+import {
+  ZERO_SPEND,
+  addUsage,
+  budgetBreach,
+  budgetGaps,
+  stateKey,
+  stopNotice,
+  type RunBudget,
+  type Spend,
+  type StopReason,
+  type TurnUsage,
+} from "./stop";
 import { toToolSpec, type Tool, type ToolSpec } from "./tool";
 
 /** What the model proposes on a turn: exactly one of a tool call or a final answer. */
 export interface ModelTurn {
   toolCall?: { name: string; args: unknown };
   finalAnswer?: string;
+  /**
+   * What this turn consumed, if the caller's `callModel` knows. Optional: the
+   * loop cannot compute it, because pricing lives in `@conduit/inference` and
+   * only `callModel` knows which model it called. A run budget can only bound
+   * what is reported here, and `budgetEnforceable` on the result says whether
+   * it was.
+   */
+  usage?: TurnUsage;
 }
 
 /**
@@ -92,6 +115,18 @@ export interface RunAgentInput {
   /** Fixed envelope nonce. Tests only: in a real run the nonce must be
    *  unpredictable so tool output cannot forge the closing marker. */
   untrustedNonce?: string;
+  /**
+   * Token and/or USD ceiling for the whole run. Omitted means only the step cap
+   * applies, which is the behaviour every caller had before 2026-08-02.
+   */
+  budget?: RunBudget;
+  /**
+   * Halt when the run reaches a (tool, args, result) state it has already been
+   * in. On by default: a repeated state is a fixed point that would otherwise
+   * burn the remaining step cap producing nothing. See `stateKey` in stop.ts
+   * for why the result is part of the state and a poller does not false-halt.
+   */
+  detectLoops?: boolean;
 }
 
 export interface RunAgentResult {
@@ -99,8 +134,29 @@ export interface RunAgentResult {
   answer?: string;
   /** Ordered trace of every step taken. */
   steps: StepRecord[];
-  /** True when the loop stopped because it reached maxSteps without a final answer. */
+  /**
+   * True when the loop stopped because it reached maxSteps without a final answer.
+   * Kept for callers written before the other two bounds existed; it is exactly
+   * `stopReason === "max_steps"`. Prefer `stopReason`, which distinguishes a run
+   * that ran out of steps from one that ran out of money or went in circles.
+   */
   stoppedAtCap: boolean;
+  /** Which of the four terminations ended the run. */
+  stopReason: StopReason;
+  /**
+   * What to show the user when a bound tripped. Empty string on a final answer,
+   * because then the answer is what the user sees.
+   */
+  notice: string;
+  /** What the run consumed, as reported by `callModel`. */
+  spend: Spend;
+  /**
+   * Empty when a declared budget was actually enforceable against what was
+   * measured. Non-empty means the ceiling could not have tripped however long
+   * the run went, e.g. a USD budget with a `callModel` that reports no cost.
+   * A caller that ignores this is trusting a bound that does not exist.
+   */
+  budgetEnforceable: string[];
   /** The ids of the skills whose instructions were injected this run. */
   loadedSkills: string[];
 }
@@ -132,6 +188,8 @@ export async function runAgent(input: RunAgentInput): Promise<RunAgentResult> {
     system = DEFAULT_SYSTEM,
     allowSideEffects = false,
     untrustedNonce,
+    budget,
+    detectLoops = true,
   } = input;
 
   const skillCtx: SkillContext = { goal, context };
@@ -142,15 +200,40 @@ export async function runAgent(input: RunAgentInput): Promise<RunAgentResult> {
 
   const messages: ChatMessage[] = [{ role: "user", content: goal }];
   const steps: StepRecord[] = [];
+  const skillIds = matchedSkills.map((s) => s.id);
+
+  let spend: Spend = ZERO_SPEND;
+  const seenStates = new Set<string>();
+
+  /** Assemble a result. One place, so every exit reports the same shape. */
+  const finish = (reason: StopReason, detail: string, answer?: string): RunAgentResult => ({
+    answer,
+    steps,
+    stoppedAtCap: reason === "max_steps",
+    stopReason: reason,
+    notice: stopNotice(reason, detail, steps.length),
+    spend,
+    budgetEnforceable: budgetGaps(spend, budget),
+    loadedSkills: skillIds,
+  });
 
   for (let step = 0; step < maxSteps; step++) {
     const turn = await callModel({ system: systemPrompt, messages, tools: toolSpecs });
 
+    // Charge the turn before acting on it. A turn that was spent is spent
+    // whether or not its content turns out to be usable.
+    spend = addUsage(spend, turn.usage);
+
     if (turn.finalAnswer !== undefined) {
       steps.push({ kind: "final", answer: turn.finalAnswer });
       messages.push({ role: "assistant", content: turn.finalAnswer });
-      return { answer: turn.finalAnswer, steps, stoppedAtCap: false, loadedSkills: matchedSkills.map((s) => s.id) };
+      return finish("final_answer", "", turn.finalAnswer);
     }
+
+    // The budget is checked after the turn is charged and before another one is
+    // bought. A run may finish one turn over the line; it may not start another.
+    const breach = budgetBreach(spend, budget);
+    if (breach) return finish("budget_exhausted", breach);
 
     if (!turn.toolCall) {
       // The model neither answered nor acted; record it and nudge it to decide.
@@ -223,6 +306,20 @@ export async function runAgent(input: RunAgentInput): Promise<RunAgentResult> {
       }
       steps.push({ kind: "tool_call", tool: name, args, ok: true, result: output });
       messages.push({ role: "user", content: screened.text });
+
+      // Loop detection, on the successful path only. A repeated ERROR is not a
+      // loop worth halting for: the error observation is precisely the new
+      // information the model needs to correct itself, and halting on the
+      // second identical validation failure would kill runs that were about to
+      // recover. A repeated success is different, because it means the model
+      // asked for something it already had and got the same answer back.
+      if (detectLoops) {
+        const key = stateKey(name, args, output);
+        if (seenStates.has(key)) {
+          return finish("loop_detected", `\`${name}\` returned an identical result for identical arguments a second time`);
+        }
+        seenStates.add(key);
+      }
     } catch (err) {
       const error: AgentError = {
         kind: "handler_error",
@@ -234,7 +331,7 @@ export async function runAgent(input: RunAgentInput): Promise<RunAgentResult> {
   }
 
   // Reached the step cap without a final answer.
-  return { answer: undefined, steps, stoppedAtCap: true, loadedSkills: matchedSkills.map((s) => s.id) };
+  return finish("max_steps", `${maxSteps} step${maxSteps === 1 ? "" : "s"}`);
 }
 
 /** Serialize an observation for the transcript. Structured so a model can parse it. */
