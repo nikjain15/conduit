@@ -1,0 +1,47 @@
+{
+  "routes": [
+    "GET /v1/models",
+    "GET /v1/suqs",
+    "GET /v1/usage",
+    "POST /v1/agent",
+    "POST /v1/decisions",
+    "POST /v1/evals/run",
+    "POST /v1/infer",
+    "POST /v1/retrieve"
+  ],
+  "responses": {
+    "InferResult": [
+      "costUsd",
+      "decisionId",
+      "latencyMs",
+      "model",
+      "output",
+      "provider"
+    ],
+    "RetrieveResult": [
+      "chunks",
+      "grounded"
+    ],
+    "AgentResult": [
+      "answer",
+      "notice?",
+      "steps",
+      "stopReason?"
+    ],
+    "EvalResult": [
+      "metrics",
+      "summary"
+    ],
+    "UsageResult": [
+      "byApp",
+      "totalCostUsd"
+    ],
+    "SuqsResult": [
+      "byApp"
+    ],
+    "ModelsResult": [
+      "models",
+      "recommended?"
+    ]
+  }
+}
