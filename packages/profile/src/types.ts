@@ -41,12 +41,42 @@ export interface RetrievalConfig {
 }
 
 /** Agent loop configuration. Filled in by the agent workstream. */
+/**
+ * A spend ceiling for one loop run.
+ *
+ * Declared here rather than imported from `@conduit/agent` on purpose: this
+ * file describes configuration and does not execute it, so it holds no
+ * dependency on the executor. The shape is structurally identical to that
+ * package's `RunBudget`, and `runConfiguredAgent` passes it straight through,
+ * so a mismatch is a compile error rather than a silent divergence.
+ */
+export interface AgentRunBudget {
+  /** Total input + output tokens across every model turn in the run. */
+  maxTokens?: number;
+  /** Total USD across every model turn in the run. */
+  maxCostUsd?: number;
+}
+
 export interface AgentConfig {
   /** "single" is one shot; "loop" runs a tool use loop up to maxSteps. */
   mode: "single" | "loop";
   tools: string[];
   skills: string[];
   maxSteps?: number;
+  /**
+   * Token and/or USD ceiling for one loop run, on top of maxSteps. A step cap
+   * bounds how many model turns a run takes and says nothing about what they
+   * cost, so a profile that cares about spend sets this too. Omitted means the
+   * step cap is the only bound. Ignored in "single" mode, which makes exactly
+   * one call. See `@conduit/agent`'s stop.ts.
+   */
+  budget?: AgentRunBudget;
+  /**
+   * Halt a loop that reaches a state it has already been in. Defaults to true
+   * in the loop itself; set false only for a workload where an identical call
+   * returning an identical result is genuinely productive.
+   */
+  detectLoops?: boolean;
 }
 
 /** Prompt assembly configuration. Filled in by the prompts workstream. */

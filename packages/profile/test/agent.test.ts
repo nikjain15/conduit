@@ -201,3 +201,132 @@ describe("runConfiguredAgent", () => {
     expect(result.warnings.some((w) => w.includes("ghost-tool"))).toBe(true);
   });
 });
+
+/**
+ * The stop conditions as a PROFILE sees them (ADR-0002). The bounds themselves
+ * are held by `packages/agent/test/stop.test.ts`; these tests exist to prove the
+ * config actually reaches the loop, which is the half a unit test of the loop
+ * cannot see. A budget declared on a profile and dropped on the way to
+ * `runAgent` would pass every test in the other file.
+ */
+describe("agent stop conditions, through a profile", () => {
+  it("carries a declared budget into the loop and halts on it", async () => {
+    let calls = 0;
+    const callModel: CallModel = async () => {
+      calls += 1;
+      // Never finishes, every call distinct: only the budget can stop this.
+      return {
+        toolCall: { name: "search-repo", args: { query: `q${calls}` } },
+        usage: { inputTokens: 400, outputTokens: 100 },
+      };
+    };
+
+    const profile = {
+      agent: {
+        mode: "loop",
+        tools: ["search-repo"],
+        skills: [],
+        maxSteps: 50,
+        budget: { maxTokens: 1500 },
+      } as AgentConfig,
+    };
+    const result = await runConfiguredAgent(profile, "search forever", { callModel });
+
+    expect(result.stopReason).toBe("budget_exhausted");
+    expect(result.stoppedAtCap).toBe(false);
+    expect(calls).toBe(3);
+    expect(result.notice).toContain("token budget");
+    expect(result.budgetEnforceable).toEqual([]);
+  });
+
+  it("halts a profile-driven loop that repeats itself, well before maxSteps", async () => {
+    let calls = 0;
+    const callModel: CallModel = async () => {
+      calls += 1;
+      return { toolCall: { name: "search-repo", args: { query: "TODO" } } };
+    };
+
+    const profile = {
+      agent: { mode: "loop", tools: ["search-repo"], skills: [], maxSteps: 30 } as AgentConfig,
+    };
+    const result = await runConfiguredAgent(profile, "go in circles", { callModel });
+
+    expect(result.stopReason).toBe("loop_detected");
+    expect(calls).toBe(2);
+    expect(result.notice).toContain("repeated itself");
+  });
+
+  it("respects detectLoops: false from the profile", async () => {
+    const callModel: CallModel = async () => ({
+      toolCall: { name: "search-repo", args: { query: "TODO" } },
+    });
+
+    const profile = {
+      agent: {
+        mode: "loop",
+        tools: ["search-repo"],
+        skills: [],
+        maxSteps: 3,
+        detectLoops: false,
+      } as AgentConfig,
+    };
+    const result = await runConfiguredAgent(profile, "repeat allowed", { callModel });
+
+    expect(result.stopReason).toBe("max_steps");
+    expect(result.steps).toHaveLength(3);
+  });
+
+  it("warns about a ceiling that would stop every run at its first turn", () => {
+    const resolved = resolveAgent({
+      mode: "loop",
+      tools: [],
+      skills: [],
+      budget: { maxTokens: 0 },
+    } as AgentConfig);
+
+    expect(resolved.warnings.join(" ")).toContain("non-positive ceiling");
+  });
+
+  it("reports a USD ceiling the loop could never have enforced", async () => {
+    let calls = 0;
+    const callModel: CallModel = async () => {
+      calls += 1;
+      if (calls > 2) return { finalAnswer: "done" };
+      // Tokens reported, cost not: a dollar budget here is a decoration.
+      return {
+        toolCall: { name: "search-repo", args: { query: `q${calls}` } },
+        usage: { inputTokens: 10, outputTokens: 5 },
+      };
+    };
+
+    const profile = {
+      agent: {
+        mode: "loop",
+        tools: ["search-repo"],
+        skills: [],
+        maxSteps: 10,
+        budget: { maxCostUsd: 0.5 },
+      } as AgentConfig,
+    };
+    const result = await runConfiguredAgent(profile, "unpriced", { callModel });
+
+    expect(result.stopReason).toBe("final_answer");
+    expect(result.budgetEnforceable.join(" ")).toContain("cost ceiling cannot trip");
+  });
+
+  it("records spend in single mode, where no bound can trip", async () => {
+    const callModel: CallModel = async () => ({
+      finalAnswer: "classified",
+      usage: { inputTokens: 120, outputTokens: 8, costUsd: 0.0004 },
+    });
+    const profile = {
+      agent: { mode: "single", tools: ["classify-intent"], skills: [] } as AgentConfig,
+    };
+    const result = await runConfiguredAgent(profile, "triage", { callModel });
+
+    expect(result.stopReason).toBe("final_answer");
+    expect(result.notice).toBe("");
+    expect(result.spend.inputTokens).toBe(120);
+    expect(result.spend.costUsd).toBeCloseTo(0.0004, 10);
+  });
+});
