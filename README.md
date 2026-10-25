@@ -9,8 +9,6 @@
 
 Live console: **[nikjain15.github.io/conduit](https://nikjain15.github.io/conduit)** (runs against an in-browser mock gateway that starts empty; no gateway is deployed, so it shows no usage, cost, or SLO numbers).
 
-Demo GIF below.
-
 <!-- DEMO_GIF -->
 
 Conduit is **hybrid** by design:
@@ -80,7 +78,7 @@ The client calls `tools/list` to discover tools and `tools/call` to run one; arg
 
 ## Model contract
 
-Sampling parameters (`temperature` / `top_p` / `top_k`) are a per-model API contract, not a preference. Current reasoning tiers (Opus 5 / 4.8 / 4.7, Sonnet 5, Fable 5) reject them with HTTP 400; Haiku 4.5 and older accept them. The catalog records which models accept them (`supportsSampling`), but the core does not consult it yet: `resolve()` forwards any caller supplied `temperature` to every provider, so a profile that pins a reasoning tier must not set one. This is a known, open gap, held by an expected failure in `evals/gate.test.ts` and described in [`evals/README.md`](evals/README.md#the-known-gap-in-the-model-contract-set). The built-in judge panel sets `temperature: 0`, so through the core it needs a judge model that accepts sampling params.
+Sampling parameters (`temperature` / `top_p` / `top_k`) are a per-model API contract, not a preference. Current reasoning tiers (Opus 5 / 4.8 / 4.7, Sonnet 5, Fable 5) reject them with HTTP 400; Haiku 4.5 and older accept them. The catalog records which models accept them (`supportsSampling`), but the core does not consult it yet: `resolve()` forwards any caller-supplied `temperature` to every provider, so a profile that pins a reasoning tier must not set one. This is a known, open gap, held by an expected failure in `evals/gate.test.ts` and described in [`evals/README.md`](evals/README.md#the-known-gap-in-the-model-contract-set). The built-in judge panel sets `temperature: 0`, so through the core it needs a judge model that accepts sampling params.
 
 ## Changelog and versioning
 
