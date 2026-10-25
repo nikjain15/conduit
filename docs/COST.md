@@ -7,7 +7,8 @@ does the routing table cost, and what is the routing decision itself worth**.
 Regenerate with `npm run cost:model`. The figures come from
 [`scripts/cost-model.mjs`](../scripts/cost-model.mjs), which parses `DEFAULT_ROUTING` and
 `DEFAULT_PRICES` out of `packages/inference/src/core.ts`. Every use case, model id and price
-below is the config that routes real traffic, not a number retyped into a document.
+below is the routing config in the core, not a number retyped into a document. Token counts are
+estimated and the daily volumes are assumed, so every total on this page is modelled, not measured.
 
 ## The routing table, priced
 
@@ -18,8 +19,9 @@ below is the config that routes real traffic, not a number retyped into a docume
 | `email_compose` | Workers-AI llama 3.3 (free tier) | 750 | 375 | **$0** | 60 | **$0** |
 | `content_draft` | claude-sonnet-4-6 | 1500 | 1500 | $0.03 | 30 | $0.81 |
 
-Per tenant over 30 days: **$66.30 as routed**, against **$128.47** if every call ran on the
-dearest model in the table. **Routing saves 48%.**
+Modelled per tenant over 30 days, at the assumed volumes above: **$66.30 as routed**, against
+**$128.47** if every call ran on the dearest model in the table. **Routing saves 48% in this
+model.**
 
 ## Volume and cost are almost unrelated
 

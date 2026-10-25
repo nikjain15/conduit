@@ -23,7 +23,7 @@ import { resolveOnNode } from "@conduit/inference/adapters/node";
 
 ## Sampling contract
 
-Only send `temperature`, `top_p`, or `top_k` to a model where sampling is supported. Several current models reject sampling params, so the core guards them before dispatch. Reuse that guarding rather than passing sampling params blindly.
+Only send `temperature`, `top_p`, or `top_k` to a model where sampling is supported. Several current models reject sampling params with an HTTP 400. The core does not guard this yet: `resolve()` forwards any `temperature` on the task to every provider without consulting the catalog. Check `supportsSampling` in `@conduit/catalog` before setting one. The gap is recorded in `evals/README.md` and held by an expected failure in `evals/gate.test.ts`.
 
 ## License
 

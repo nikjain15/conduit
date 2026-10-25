@@ -53,11 +53,11 @@ export function Overview() {
       <h2>Overview</h2>
       <p className="lead">
         Spend this month per app and a health summary from the SUQS service level objectives. Both read
-        live from the gateway usage and suqs endpoints, grouped by the app each use case belongs to.
+        from the gateway usage and suqs endpoints, grouped by the app each use case belongs to.
       </p>
 
       {loading ? (
-        <p className="sub">Loading live data from the gateway.</p>
+        <p className="sub">Loading data from the gateway.</p>
       ) : !hasUsage && !hasSuqs ? (
         <NoLiveData what="Monthly spend and SUQS health" />
       ) : (

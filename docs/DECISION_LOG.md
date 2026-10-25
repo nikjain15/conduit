@@ -30,6 +30,16 @@ a latency comparison against a direct SDK call belongs in the same run.
 
 ## Open gaps, recorded rather than hidden
 
+**OPEN since 2026-09-07: the weekly judge re-validation fails.** Every scheduled
+`judge-validation` run from 2026-09-07 on has failed with `claude-sonnet-5`
+groundedness at kappa 0, both models rejecting all 30 cases in about ten seconds
+where a passing run takes about four minutes. That is every judge call erroring
+and the judge failing closed, not a measured drop in quality. The runner swallows
+the error text, so the log does not say which error. The kappa 0.93 recorded on
+2026-08-02 is therefore an August measurement, not a current one, and
+`evals/README.md` says so. Fix: surface the first judge error in the run log,
+then re-run with a working key.
+
 **CLOSED 2026-08-02: the guardrail floor is now wired to the request path.** The
 entry below is kept in full, because the error it records is more useful than the
 fix.

@@ -129,9 +129,11 @@ ANTHROPIC_API_KEY=... npx vitest run evals/judge-validation.live.test.ts
 
 It grades two models by default, a cheap tier and a strong one, because the
 comparison answers a question worth money: if the cheap judge marks as
-accurately, it is the correct production choice. Results are written to
-`results/judge-validation.json` and committed, so a claim about judge accuracy
-always points at a dated measurement naming the models used.
+accurately, it is the correct production choice. A local run writes
+`results/judge-validation.json`, and the committed copy is the run of 2026-08-02,
+so a claim about judge accuracy always points at a dated measurement naming the
+models used. CI runs upload the same file as a workflow artifact rather than
+committing it.
 
 `.github/workflows/judge-validation.yml` runs it on pull requests that touch the
 judge or this set, and weekly to catch drift as models change underneath it. The
@@ -139,7 +141,7 @@ free test in `judge-validation.test.ts` holds any recorded number to its floor o
 every pull request, and checks the set stays balanced and large enough to be
 worth measuring against.
 
-### Measured, 2026-08-02
+### Measured, 2026-08-02 (the committed run)
 
 | Judge model | Groundedness | Relevance |
 |---|---|---|
@@ -147,6 +149,27 @@ worth measuring against.
 | `claude-sonnet-5` | **kappa 0.93, agreement 96.7%** | kappa 0.13, agreement 56.7% |
 
 Base rates: 53.3 percent faithful, 50.0 percent relevant.
+
+The relevance figures above were measured with the first relevance rubric. The
+rubric was changed the same day (see `RELEVANCE_CRITERIA` in
+`run-judge-validation.ts`) and the committed file was not re-recorded.
+
+### Re-measured in CI, and current status
+
+Ten `judge-validation` workflow runs between 2026-08-02 and 2026-08-31 recorded
+a measurement: five manual runs on 2026-08-02 while the relevance rubric was
+being tuned (the committed 0.93 is the first of them), then five weekly runs.
+`claude-sonnet-5` groundedness measured between kappa 0.74 and 1.00 and cleared
+the 0.6 floor every time. Relevance on the current rubric (six of those runs)
+measured between 0.47 and 0.53 and never cleared it. `claude-haiku-4-5` scored
+kappa 0 on both dimensions in every run.
+
+**Every weekly run since 2026-09-07 has failed**, with both models rejecting all
+30 cases on both dimensions (kappa 0) in about ten seconds, against roughly four
+minutes for a passing run. That is the signature of every judge call erroring
+and the judge failing closed, not of a measured drop in judging quality. Until a
+run passes again, the groundedness validation below is a measurement from
+August 2026, not a current one.
 
 **The cheap model is not a judge.** `claude-haiku-4-5` returns fail on all 30
 cases, on both dimensions. That scores a perfect catch rate on bad answers and a
@@ -156,12 +179,15 @@ everything. Reading only "caught 100 percent of ungrounded answers" would have
 made it look excellent. This is exactly the failure raw agreement hides and
 kappa exposes.
 
-**Groundedness judging is validated.** `claude-sonnet-5` reaches kappa 0.93,
-almost perfect on the Landis and Koch scale, missing one case out of 30 and
-raising no false alarms. Conduit claims this pair and holds it to the floor.
+**Groundedness judging was validated in August 2026.** On the committed run
+`claude-sonnet-5` reached kappa 0.93, almost perfect on the Landis and Koch scale,
+missing one case out of 30 and raising no false alarms, and CI re-measured it
+between 0.74 and 1.00 through 2026-08-31. Conduit claims this pair and holds it
+to the floor; the weekly re-validation is currently failing, as described above.
 
-**Relevance judging is NOT validated and must not gate output.** At kappa 0.13
-the strong model is barely above chance: it correctly rejects 80 percent of
+**Relevance judging is NOT validated and must not gate output.** At kappa 0.13 on
+the first rubric, and at most 0.53 on the current one, the strong model is below
+the floor. On the committed run it was barely above chance: it correctly rejects 80 percent of
 off-topic answers, but wrongly rejects 10 of the 15 genuinely on-topic ones. As a
 gate it would refuse two thirds of good answers. The likely cause is that the
 judge still weighs factual support when asked to weigh only topicality, so the
@@ -185,8 +211,9 @@ Both sets are synthetic today. The highest value additions, in order:
    Cases `inj-11` to `inj-13` and the benign counterparts `ben-11` and `ben-12`
    are a start, and they test the engine's verdict on that text; what they cannot
    test is whether a model honours the envelope the agent loop wraps it in.
-3. A judge validation set: outputs scored by a human and by the judge panel, so
-   the panel's agreement can be reported next to every score it produces.
+3. More judge validation cases. `dataset/judge-validation.jsonl` now holds 30
+   hand labelled cases; growing it, and sampling some from real outputs, would
+   let the panel's agreement be reported next to every score it produces.
 
 Keep case ids stable when adding, and record the band so precision and recall
 stay separable.
