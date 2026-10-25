@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { client } from "../data/client.ts";
+import { client, usingMockGateway } from "../data/client.ts";
 import type { CatalogModel } from "@conduit/client";
 import {
   MODEL_CONFIG,
@@ -108,7 +108,9 @@ function ModelCard({ useCase, initial, models, recommended }: ModelCardProps) {
         maxTokens: 64,
       });
       setTestResult(
-        `Main model ${res.provider}/${res.model} responded in ${res.latencyMs} ms.`,
+        usingMockGateway
+          ? `Mock gateway returned a placeholder for ${res.provider}/${res.model}. No model was called.`
+          : `Main model ${res.provider}/${res.model} responded in ${res.latencyMs} ms.`,
       );
     } catch {
       setTestResult("Test call failed against the gateway.");
@@ -242,9 +244,9 @@ export function Models() {
     <section className="page">
       <h2>Models</h2>
       <p className="lead">
-        Per use case routing over the live catalog: a main model, a backup that takes over on a cap hit,
+        Per use case routing over the model catalog: a main model, a backup that takes over on a cap hit,
         a monthly spend cap, and cached answer reuse where policy allows it. The catalog is loaded from
-        the gateway, so any model available on OpenRouter can be routed alongside the curated managed and
+        the gateway (a frozen sample snapshot when running against the mock), so any model available on OpenRouter can be routed alongside the curated managed and
         edge tiers.
       </p>
       <span className="notice">{SAMPLE_NOTICE}</span>

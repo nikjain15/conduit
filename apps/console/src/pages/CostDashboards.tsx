@@ -29,7 +29,7 @@ export function CostDashboards() {
     <section className="page">
       <h2>Cost dashboards</h2>
       <p className="lead">
-        Spend this month read live from the gateway usage endpoint: a per-app rollup first, then the
+        Spend this month read from the gateway usage endpoint: a per-app rollup first, then the
         per-use-case breakdown within each app. Bars are scaled to the highest-spending use case.
       </p>
 

@@ -4,10 +4,10 @@
 
 [![CI](https://github.com/nikjain15/conduit/actions/workflows/ci.yml/badge.svg)](https://github.com/nikjain15/conduit/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
-[![tests](https://img.shields.io/badge/tests-275%20passing-brightgreen.svg)](https://github.com/nikjain15/conduit/actions/workflows/ci.yml)
+[![tests](https://img.shields.io/badge/tests-327%20passing-brightgreen.svg)](https://github.com/nikjain15/conduit/actions/workflows/ci.yml)
 [![packages](https://img.shields.io/badge/packages-10-informational.svg)](#layout)
 
-Live console: **[nikjain15.github.io/conduit](https://nikjain15.github.io/conduit)** (runs against a mock gateway that starts empty).
+Live console: **[nikjain15.github.io/conduit](https://nikjain15.github.io/conduit)** (runs against an in-browser mock gateway that starts empty; no gateway is deployed, so it shows no usage, cost, or SLO numbers).
 
 Demo GIF below.
 
@@ -80,7 +80,7 @@ The client calls `tools/list` to discover tools and `tools/call` to run one; arg
 
 ## Model contract
 
-Sampling parameters (`temperature` / `top_p` / `top_k`) are a per-model API contract, not a preference. Current reasoning tiers (Opus 5 / 4.8 / 4.7, Sonnet 5, Fable 5) reject them with HTTP 400; Haiku 4.5 and older accept them. The core only sends a sampling param to a model that accepts it and relies on grounded prompts for determinism elsewhere.
+Sampling parameters (`temperature` / `top_p` / `top_k`) are a per-model API contract, not a preference. Current reasoning tiers (Opus 5 / 4.8 / 4.7, Sonnet 5, Fable 5) reject them with HTTP 400; Haiku 4.5 and older accept them. The catalog records which models accept them (`supportsSampling`), but the core does not consult it yet: `resolve()` forwards any caller supplied `temperature` to every provider, so a profile that pins a reasoning tier must not set one. This is a known, open gap, held by an expected failure in `evals/gate.test.ts` and described in [`evals/README.md`](evals/README.md#the-known-gap-in-the-model-contract-set). The built-in judge panel sets `temperature: 0`, so through the core it needs a judge model that accepts sampling params.
 
 ## Changelog and versioning
 
@@ -92,4 +92,4 @@ or renamed field fails the build instead of a consumer.
 
 ## Status
 
-All ten packages typecheck clean and are unit-tested in CI (275 tests), with `@conduit/inference` promoted from a production inference core. The gateway and console build in CI, and the console is live at nikjain15.github.io/conduit against a mock gateway that starts empty, real usage and SUQS SLOs appear once a gateway runs with a live API key and metered traffic. The four apps embed the client and route their AI through Conduit in process today; central gateway reporting is wired and dormant until a gateway is deployed.
+All ten packages typecheck clean and are tested in CI (327 tests passing, 1 skipped because it calls a live model and needs an API key), with `@conduit/inference` promoted from a production inference core. The gateway typechecks and is tested in CI but is not deployed or operated; the console builds in CI and is published to nikjain15.github.io/conduit, where it runs against an in-browser mock gateway that starts empty. Usage, cost, and SUQS SLO views therefore show no numbers: the SLO fields exist in the profile and the gateway computes them from metered decisions, but nothing has been measured on live traffic. The four apps (Pulse, RoleOS, FounderFirst, Rally) embed the client and route their AI through Conduit in process today; central gateway reporting is wired and dormant until a gateway is deployed.

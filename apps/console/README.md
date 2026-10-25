@@ -18,11 +18,11 @@ by it.
 
 ## Sections
 
-- Overview: spend this month per app plus a health summary, both read live from the gateway usage and suqs endpoints.
-- Models: the core screen. Cards are grouped under an app heading, one per use case, over the live model catalog: a main model, a backup that takes over on a cap hit, a monthly cap in USD, and a cached answer reuse toggle. Caching is locked off for customer facing and financial use cases. Each card has Save and Test actions.
+- Overview: spend this month per app plus a health summary, both read from the gateway usage and suqs endpoints.
+- Models: the core screen. Cards are grouped under an app heading, one per use case, over the model catalog (served by the gateway; a frozen sample snapshot under the mock): a main model, a backup that takes over on a cap hit, a monthly cap in USD, and a cached answer reuse toggle. Caching is locked off for customer facing and financial use cases. Each card has Save and Test actions.
 - Eval setup: the gates and thresholds each use case must clear, grouped by app, split into inline and batch checks.
-- Cost dashboards: a per-app spend rollup first, then the per-use-case breakdown within each app, read live from the gateway usage endpoint and drawn as scaled bars.
-- SUQS SLOs: p95 latency, cost per answer, and gate block rate computed live from real metered decisions, grouped by app, against target, flagged when over.
+- Cost dashboards: a per-app spend rollup first, then the per-use-case breakdown within each app, read from the gateway usage endpoint and drawn as scaled bars.
+- SUQS SLOs: p95 latency, cost per answer, and gate block rate computed from the decisions the gateway has metered, grouped by app, against target, flagged when over.
 
 ## Data layer
 
@@ -39,7 +39,10 @@ The distinction the console keeps honest:
   Retrieval) is placeholder config, and the pages that show it carry a sample notice.
 
 By default the client is wired to a local mock adapter in `src/data/mockGateway.ts`, so
-`npm run build` produces a static site that works with no backend. The mock backs
+`npm run build` produces a static site that works with no backend. The published console at
+nikjain15.github.io/conduit is that build: no gateway is deployed, so every live telemetry
+view shows the empty state, and the Models Test action reports a mock placeholder rather than a
+latency. The mock backs
 `usage`, `suqs`, and `reportDecision` with an in-memory decision store that starts EMPTY,
 so the offline console demonstrates the honest empty state rather than invented figures.
 

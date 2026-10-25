@@ -88,8 +88,9 @@ estimate.
 ## Cost
 
 Cost per request is recorded per decision by the inference core and surfaced in
-the console's cost dashboards. There is no written cost per use case at expected
-volume yet. See `docs/DECISION_LOG.md` for why that is open rather than answered.
+the console's cost dashboards once a gateway meters traffic; none has yet.
+`docs/COST.md` models cost per use case from the routing table and price table at
+assumed volumes. It is a model, not a measurement.
 
 ## When to stop
 

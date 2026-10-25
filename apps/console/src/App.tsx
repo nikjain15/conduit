@@ -34,7 +34,9 @@ export function App() {
         <p>
           The control plane for the internal AI platform: routing, spend caps, evals, and service level
           objectives that products plug into.{" "}
-          {usingMockGateway ? "Connected to the local mock gateway." : "Connected to a live gateway."}
+          {usingMockGateway
+            ? "Running against an in-browser mock gateway that starts empty: no live traffic, so usage, cost, and SLO views show no numbers."
+            : "Connected to a gateway."}
         </p>
       </header>
 

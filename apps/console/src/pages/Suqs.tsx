@@ -104,8 +104,8 @@ export function Suqs() {
       <h2>SUQS SLOs</h2>
       <p className="lead">
         Service level objectives per use case, grouped by app: p95 latency, cost per answer, and gate
-        block rate, each shown against its target. Every measure is computed live from real metered
-        decisions. A row is flagged when any measure runs over target.
+        block rate, each shown against its target. Every measure is computed from decisions the
+        gateway has metered; none are shown until it has metered some. A row is flagged when any measure runs over target.
       </p>
 
       {suqs === null ? (
