@@ -325,7 +325,7 @@ export const orgTenant = (id: string): string => `org:${id}`;
 
 /**
  * Seed price table (USD per million tokens). Cost is config (D10/D22) and does
- * NOT affect answers, these feed the Phase-1 cost KPIs. Verified against the
+ * NOT affect answers, these feed the Phase-1 cost KPIs. Verified against
  * Anthropic's published price list (as of 2026-06-04):
  * Haiku 4.5 = $1 / $5, Sonnet 4.6 = $3 / $15. Workers-AI models are free-tier
  * -> 0, but token usage is still recorded. Admin model config (Phase 4) will let
